@@ -22,7 +22,9 @@ The official implementation of NeurIPS 2025 paper "[DRIFT: Dynamic Rule-Based De
 ## How to Start
 We provide the evaluation of DRIFT, you can reproduce the results following:
 
-### Construct Your Environment
+### Evaluating on AgentDojo
+
+#### Construct Your Environment
 
 ```bash
 conda create -n drift python=3.11
@@ -31,7 +33,7 @@ pip install "agentdojo==0.1.35"
 pip install -r requirements.txt
 ```
 
-### Set Your API KEY
+#### Set Your API KEY
 We provide three API providers, including OpenAI, Google, and OpenRouter. Please set up the API Key as you need.
 
 ```bash
@@ -40,19 +42,21 @@ export GOOGLE_API_KEY=your_key
 export OPENROUTER_API_KEY=your_key
 ```
 
-### run task with no attack
+#### run task with no attack
 ```bash
 python pipeline_main.py \
 --model gpt-4o-mini-2024-07-18 \
 --build_constraints --injection_isolation --dynamic_validation
+--suites banking,slack,travel,workspace
 ```
 
-### run task under attack
+#### run task under attack
 ```bash
 python pipeline_main.py \
 --model gpt-4o-mini-2024-07-18 --do_attack \
 --attack_type important_instructions \
 --build_constraints --injection_isolation --dynamic_validation
+--suites banking,slack,travel,workspace
 ```
 
 You can evaluate any model from the supported providers by passing its model identifier (eg., gemini-2.5-pro) to the `--model` flag. To evaluate under an adaptive attack, include the `--adaptive_attack` configuration.
@@ -69,7 +73,7 @@ pip install -e .
 
 Then, AgentDojo dependency has been replaced with the AgentDyn version, which additionally supports the shopping, github, and dailylife suites. You can use the same commands as for evaluating on AgentDojo to evaluate on these three suites, as shown below:
 
-### run task with no attack
+#### run task with no attack
 ```bash
 python pipeline_main.py \
 --model gpt-4o-mini-2024-07-18 \
@@ -77,7 +81,7 @@ python pipeline_main.py \
 --suites shopping,github,dailylife
 ```
 
-### run task under attack
+#### run task under attack
 ```bash
 python pipeline_main.py \
 --model gpt-4o-mini-2024-07-18 --do_attack \
