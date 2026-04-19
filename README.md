@@ -52,6 +52,35 @@ python pipeline_main.py \
 You can evaluate any model from the supported providers by passing its model identifier (eg., gemini-2.5-pro) to the `--model` flag. To evaluate under an adaptive attack, include the `--adaptive_attack` configuration.
 
 
+### Evaluating on AgentDyn
+To evaluate on AgentDyn, you can directly replace the AgentDojo dependency with the AgentDyn version. First, run:
+
+```bash
+git clone git@github.com:SaFo-Lab/AgentDyn.git
+cd AgentDyn
+pip install -e .
+```
+
+Then, AgentDojo dependency has been replaced with the AgentDyn version, which additionally supports the shopping, github, and dailylife suites. You can use the same commands as for evaluating on AgentDojo to evaluate on these three suites, as shown below:
+
+### run task with no attack
+```bash
+python pipeline_main.py \
+--model gpt-4o-mini-2024-07-18 \
+--build_constraints --injection_isolation --dynamic_validation
+--suites shopping,github,dailylife
+```
+
+### run task under attack
+```bash
+python pipeline_main.py \
+--model gpt-4o-mini-2024-07-18 --do_attack \
+--attack_type important_instructions \
+--build_constraints --injection_isolation --dynamic_validation
+--suites shopping,github,dailylife
+```
+
+
 ### Evaluating on ASB
 Please refer to `ASB_DRIFT/README.md`.
 
