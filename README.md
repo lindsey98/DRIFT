@@ -2,6 +2,11 @@
 
 [Hao Li](https://leolee99.github.io/), [Xiaogeng Liu](https://sheltonliu-n.github.io/), [Hung-Chun Chiu](https://qhjchc.notion.site/), [Dianqi Li](https://scholar.google.com/citations?user=K40nbiQAAAAJ&hl=en), [Ning Zhang](https://cybersecurity.seas.wustl.edu/index.html), [Chaowei Xiao](https://xiaocw11.github.io/).
 
+<a href='https://safo-lab.github.io/DRIFT'><img src='https://img.shields.io/badge/Website-Page-%23f08080'></a> 
+<a href='https://github.com/SaFo-Lab/DRIFT'><img src='https://img.shields.io/badge/GitHub-code-green?logo=github'></a> 
+<a href='https://arxiv.org/pdf/2506.12104'><img src='https://img.shields.io/badge/Paper-PDF-red?logo=open-access'></a> 
+<a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue" alt="Github license"/></a>
+
 <p align="center" width="80%">
 <a target="_blank"><img src="assets/framework.png" alt="framework" style="width: 80%; min-width: 200px; display: block; margin: auto;"></a>
 </p>
@@ -9,6 +14,7 @@
 The official implementation of NeurIPS 2025 paper "[DRIFT: Dynamic Rule-Based Defense with Injection Isolation for Securing LLM Agents](https://www.arxiv.org/pdf/2506.12104)".
 
 ## Update
+- [2026.4.19] 🛠️ Update the evaluation on AgentDyn.
 - [2026.1.30] 🛠️ Support the evaluation on more agents.
 - [2026.1.30] 🛠️ Update the evaluation code on ASB.
 
