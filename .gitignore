@@ -1,2 +1,4 @@
 runs_
 *log.txt
+__pycache__/
+*.pyc
