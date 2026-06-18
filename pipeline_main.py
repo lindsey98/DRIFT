@@ -1,5 +1,5 @@
 import time
-from client import OpenAIModel, OpenRouterModel, GoogleModel
+from client import OpenAIModel, OpenRouterModel, GoogleModel, AnthropicModel
 
 from import_lib import *
 from utils import get_args, set_seed, get_logger
@@ -56,6 +56,13 @@ def main(args, suite_type):
         client = GoogleModel(model=args.model, logger=logger)
         tools_pipeline_name = args.model
         logger.info(f"Using Google Client: {args.model}")
+
+    elif model_name.startswith("anthropic:") or model_name.startswith("claude"):
+        # Accept either "anthropic:claude-sonnet-4-5-20250929" or "claude-sonnet-4-5-20250929".
+        anthropic_model = model_name.split("anthropic:", 1)[-1]
+        client = AnthropicModel(model=anthropic_model, logger=logger)
+        tools_pipeline_name = anthropic_model
+        logger.info(f"Using Anthropic Client: {anthropic_model}")
 
     else:
         client = OpenRouterModel(model=args.model, logger=logger)

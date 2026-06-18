@@ -19,12 +19,22 @@ The official implementation of NeurIPS 2025 paper "[DRIFT: Dynamic Rule-Based De
 - [2026.1.30] 🛠️ Update the evaluation code on ASB.
 
 
-## How to Start
-We provide the evaluation of DRIFT, you can reproduce the results following:
+## Overview
 
-### Evaluating on AgentDojo
+DRIFT is an indirect prompt injection (IPI) defense for tool-using LLM agents. It
+guards the agent with three components, all driven from `pipeline_main.py`:
 
-#### Construct Your Environment
+- `--build_constraints` — build an initial function-trajectory plan and parameter checklist from the user query.
+- `--injection_isolation` — detect and isolate injected instructions found inside tool results.
+- `--dynamic_validation` — validate each step against the plan/checklist as the agent runs.
+
+Throughout this README we refer to running with **all three flags enabled** as the
+**IPI guard defense**, and running with **none of them** as the **original model**
+(the undefended baseline). Attacks are toggled with `--do_attack` and selected with
+`--attack_type` (e.g., `important_instructions`).
+
+
+## Installation
 
 ```bash
 conda create -n drift python=3.11
@@ -33,37 +43,88 @@ pip install "agentdojo==0.1.35"
 pip install -r requirements.txt
 ```
 
-#### Set Your API KEY
-We provide three API providers, including OpenAI, Google, and OpenRouter. Please set up the API Key as you need.
+## API Keys
+
+The model provider is chosen automatically from the `--model` name:
+
+| Provider   | Model prefix                                  | Environment variable |
+|------------|-----------------------------------------------|----------------------|
+| OpenAI     | `gpt-...`                                      | `OPENAI_API_KEY`     |
+| Google     | `gemini-...`                                   | `GOOGLE_API_KEY` (Vertex: `GCP_PROJECT`, `GCP_LOCATION`) |
+| Anthropic  | `anthropic:claude-...` or `claude-...`         | `ANTHROPIC_API_KEY`  |
+| OpenRouter | anything else                                  | `OPENROUTER_API_KEY` |
+
+Set whichever key matches the model you plan to run:
 
 ```bash
 export OPENAI_API_KEY=your_key
 export GOOGLE_API_KEY=your_key
+export ANTHROPIC_API_KEY=your_key
 export OPENROUTER_API_KEY=your_key
 ```
 
-#### run task with no attack
+## How to Run (AgentDojo)
+
+The examples below use the Anthropic model `anthropic:claude-sonnet-4-5-20250929`.
+You can swap in any supported model (e.g. `gpt-4o-mini-2024-07-18`,
+`gemini-2.5-pro`) by changing the `--model` flag. The `--suites` flag selects the
+AgentDojo suites to evaluate (`banking,slack,travel,workspace`).
+
+### 1. Important Instructions attack + IPI guard defense
+
+The defense (all three flags) running against the `important_instructions` attack:
+
 ```bash
 python pipeline_main.py \
---model gpt-4o-mini-2024-07-18 \
---build_constraints --injection_isolation --dynamic_validation
---suites banking,slack,travel,workspace
+  --model anthropic:claude-sonnet-4-5-20250929 \
+  --do_attack --attack_type important_instructions \
+  --build_constraints --injection_isolation --dynamic_validation \
+  --suites banking,slack,travel,workspace
 ```
 
-#### run task under attack
+### 2. No attack + IPI guard defense
+
+The defense running on clean tasks (measures utility under DRIFT, no injection):
+
 ```bash
 python pipeline_main.py \
---model gpt-4o-mini-2024-07-18 --do_attack \
---attack_type important_instructions \
---build_constraints --injection_isolation --dynamic_validation
---suites banking,slack,travel,workspace
+  --model anthropic:claude-sonnet-4-5-20250929 \
+  --build_constraints --injection_isolation --dynamic_validation \
+  --suites banking,slack,travel,workspace
 ```
 
-You can evaluate any model from the supported providers by passing its model identifier (eg., gemini-2.5-pro) to the `--model` flag. To evaluate under an adaptive attack, include the `--adaptive_attack` configuration.
+### 3. Important Instructions attack + original model
+
+The undefended baseline against the `important_instructions` attack (no DRIFT flags):
+
+```bash
+python pipeline_main.py \
+  --model anthropic:claude-sonnet-4-5-20250929 \
+  --do_attack --attack_type important_instructions \
+  --suites banking,slack,travel,workspace
+```
+
+### 4. No attack + original model
+
+The undefended baseline on clean tasks (measures vanilla utility):
+
+```bash
+python pipeline_main.py \
+  --model anthropic:claude-sonnet-4-5-20250929 \
+  --suites banking,slack,travel,workspace
+```
+
+### Useful options
+
+- `--adaptive_attack` — evaluate under the adaptive attack.
+- `--attack_type` — choose the attack, e.g. `direct`, `ignore_previous`, `system_message`, `injecagent`, `tool_knowledge`, `important_instructions`, and several DoS variants (see `utils.py` for the full list).
+- `--target_user_tasks 1,4,7` / `--target_injection_tasks 1,2,3` — run a subset of tasks.
+- `--force_rerun` — re-run tasks even if a cached result already exists.
 
 
-### Evaluating on AgentDyn
-To evaluate on AgentDyn, you can directly replace the AgentDojo dependency with the AgentDyn version. First, run:
+## Evaluating on AgentDyn
+
+To evaluate on AgentDyn, replace the AgentDojo dependency with the AgentDyn version. First, run:
 
 ```bash
 git clone git@github.com:SaFo-Lab/AgentDyn.git
@@ -71,32 +132,35 @@ cd AgentDyn
 pip install -e .
 ```
 
-Then, AgentDojo dependency has been replaced with the AgentDyn version, which additionally supports the shopping, github, and dailylife suites. You can use the same commands as for evaluating on AgentDojo to evaluate on these three suites, as shown below:
+This additionally supports the `shopping`, `github`, and `dailylife` suites. Use the
+same commands as above, swapping the suites — for example, the IPI guard defense
+under attack:
 
-#### run task with no attack
 ```bash
 python pipeline_main.py \
---model gpt-4o-mini-2024-07-18 \
---build_constraints --injection_isolation --dynamic_validation
---suites shopping,github,dailylife
+  --model anthropic:claude-sonnet-4-5-20250929 \
+  --do_attack --attack_type important_instructions \
+  --build_constraints --injection_isolation --dynamic_validation \
+  --suites shopping,github,dailylife
 ```
 
-#### run task under attack
+And the original model with no attack:
+
 ```bash
 python pipeline_main.py \
---model gpt-4o-mini-2024-07-18 --do_attack \
---attack_type important_instructions \
---build_constraints --injection_isolation --dynamic_validation
---suites shopping,github,dailylife
+  --model anthropic:claude-sonnet-4-5-20250929 \
+  --suites shopping,github,dailylife
 ```
 
 
-### Evaluating on ASB
+## Evaluating on ASB
 Please refer to `ASB_DRIFT/README.md`.
 
 
-### Inspect Results
-You can find the cached results in `runs/`.
+## Inspect Results
+Results are cached under `runs/<model>/<suite>/...`. Each task writes a JSON file
+recording the configuration (which defense flags were on, attack type), the full
+conversation, token usage, and the `utility` / `security` outcomes.
 
 
 ## References
@@ -111,3 +175,5 @@ If you find this work useful in your research or applications, we appreciate tha
   year={2025}
 }
 ```
+</content>
+</invoke>
