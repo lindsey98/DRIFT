@@ -1,5 +1,5 @@
 import time
-from client import OpenAIModel, OpenRouterModel, GoogleModel
+from client import OpenAIModel, OpenRouterModel, GoogleModel, AnthropicModel, LocalModel
 
 from import_lib import *
 from utils import get_args, set_seed, get_logger
@@ -56,6 +56,21 @@ def main(args, suite_type):
         client = GoogleModel(model=args.model, logger=logger)
         tools_pipeline_name = args.model
         logger.info(f"Using Google Client: {args.model}")
+
+    elif model_name.startswith("anthropic:") or model_name.startswith("claude"):
+        # Accept either "anthropic:claude-sonnet-4-5-20250929" or "claude-sonnet-4-5-20250929".
+        anthropic_model = model_name.split("anthropic:", 1)[-1]
+        client = AnthropicModel(model=anthropic_model, logger=logger)
+        tools_pipeline_name = anthropic_model
+        logger.info(f"Using Anthropic Client: {anthropic_model}")
+
+    elif model_name.startswith("local:") or model_name.lower().startswith("qwen"):
+        # Locally-served, OpenAI-compatible model (e.g. Qwen3-30B-A3B-Instruct-2507 via vLLM).
+        # Accept either "local:Qwen3-30B-A3B-Instruct-2507" or "Qwen3-30B-A3B-Instruct-2507".
+        local_model = model_name.split("local:", 1)[-1]
+        client = LocalModel(model=local_model, logger=logger)
+        tools_pipeline_name = local_model
+        logger.info(f"Using Local Client: {local_model}")
 
     else:
         client = OpenRouterModel(model=args.model, logger=logger)

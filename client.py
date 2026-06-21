@@ -2,6 +2,8 @@ import openai
 import json
 import os
 
+import anthropic
+
 from typing import Sequence, Optional
 from google import genai
 from google.genai import types as genai_types
@@ -416,3 +418,170 @@ class GoogleModel():
             self.tokens_dict[name]["completion_tokens"] += c_t
             self.tokens_dict[name]["prompt_tokens"] += p_t
             self.tokens_dict[name]["total_tokens"] += t_t
+
+
+class LocalModel(OpenRouterModel):
+    """Client for a locally-served, OpenAI-compatible model endpoint.
+
+    Works with servers such as vLLM, SGLang, or Ollama that expose the OpenAI
+    `/v1/chat/completions` API (e.g. `python -m vllm.entrypoints.openai.api_server
+    --model Qwen/Qwen3-30B-A3B-Instruct-2507`). The base URL and API key are read
+    from the `LOCAL_API_BASE` and `LOCAL_API_KEY` environment variables, defaulting
+    to `http://localhost:8000/v1` and `EMPTY` (the vLLM placeholder key).
+
+    Inference (`agent_run` / `llm_run`) is inherited from `OpenRouterModel`; only the
+    underlying client endpoint differs.
+    """
+
+    def __init__(self, model="Qwen3-30B-A3B-Instruct-2507", api_key=None, api_base=None, logger=None):
+        self.api_base = api_base or os.getenv("LOCAL_API_BASE", "http://localhost:8000/v1")
+        self.api_key = api_key or os.getenv("LOCAL_API_KEY", "EMPTY")
+        self.model = model
+        self.logger = logger
+        self.logger.info(f"Initial Model {model}")
+        self.client = openai.OpenAI(api_key=self.api_key, base_url=self.api_base)
+
+        self.logger.info(f"Using local model {model} at {self.api_base}.")
+        self.completion_tokens = 0
+        self.prompt_tokens = 0
+        self.total_tokens = 0
+        self.label = "Local"
+
+        self.tokens_dict = {"total_completion_tokens": 0, "total_prompt_tokens": 0, "total_total_tokens": 0}
+
+
+class AnthropicModel():
+    def __init__(self, model="claude-sonnet-4-5-20250929", api_key=None, logger=None):
+        # Anthropic Client
+        self.model = model
+        self.logger = logger
+        self.logger.info(f"Initial Model {model}")
+        if api_key:
+            self.client = anthropic.Anthropic(api_key=api_key)
+        else:
+            try:
+                self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+            except Exception as e:
+                raise ValueError(e)
+
+        self.logger.info(f"Using model {model}.")
+        self.completion_tokens = 0
+        self.prompt_tokens = 0
+        self.total_tokens = 0
+        self.label = "Anthropic"
+
+        self.tokens_dict = {"total_completion_tokens": 0, "total_prompt_tokens": 0, "total_total_tokens": 0}
+
+    def _convert_messages(self, messages: Sequence[dict]):
+        """Converts the internal message format to the Anthropic Messages API format.
+
+        Returns a tuple of (system_instruction, list_of_messages). The Anthropic API
+        requires the system prompt to be passed separately and the conversation to
+        alternate between `user` and `assistant`, so consecutive same-role messages
+        are merged.
+        """
+        system_instruction = None
+        converted = []
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "system":
+                system_instruction = content
+                continue
+            elif role in ("user", "human", "tool", "observation"):
+                anthropic_role = "user"
+            elif role in ("assistant", "gpt"):
+                anthropic_role = "assistant"
+            else:
+                anthropic_role = "user"
+            converted.append({"role": anthropic_role, "content": content})
+
+        # Merge consecutive same-role messages (Anthropic requires alternation).
+        merged = []
+        for m in converted:
+            if merged and merged[-1]["role"] == m["role"]:
+                merged[-1]["content"] = f"{merged[-1]['content']}\n\n{m['content']}"
+            else:
+                merged.append(dict(m))
+
+        # The first message must be from the user.
+        if merged and merged[0]["role"] != "user":
+            merged.insert(0, {"role": "user", "content": "."})
+
+        return system_instruction, merged
+
+    def _extract_text(self, response):
+        return "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
+
+    def _update_tokens(self, usage, name):
+        c_t = getattr(usage, "output_tokens", 0) or 0
+        p_t = getattr(usage, "input_tokens", 0) or 0
+        t_t = c_t + p_t
+
+        self.completion_tokens += c_t
+        self.prompt_tokens += p_t
+        self.total_tokens += t_t
+
+        self.tokens_dict["total_completion_tokens"] = self.completion_tokens
+        self.tokens_dict["total_prompt_tokens"] = self.prompt_tokens
+        self.tokens_dict["total_total_tokens"] = self.total_tokens
+
+        self.logger.info(f"total_completion_tokens: {self.completion_tokens}. total_prompt_tokens: {self.prompt_tokens}. total_sum_tokens: {self.total_tokens}.\n")
+
+        if name not in self.tokens_dict:
+            self.tokens_dict[name] = {"completion_tokens": c_t, "prompt_tokens": p_t, "total_tokens": t_t}
+        else:
+            self.tokens_dict[name]["completion_tokens"] += c_t
+            self.tokens_dict[name]["prompt_tokens"] += p_t
+            self.tokens_dict[name]["total_tokens"] += t_t
+
+    def agent_run(self, messages, tools=[], query=None, initial_trajectory=None, achieved_trajectory=None, node_checklist=None, name="default"):
+        """
+        Employ the LLM to response the prompt.
+        """
+        for message in messages:
+            if message["role"] == "system":
+                # insert tools
+                str_tools = json.dumps(tools)
+                if "<avaliable_tools>" not in message["content"]:
+                    message["content"] = message["content"] + f"\n\n<avaliable_tools>\n\n{str_tools}\n\n</avaliable_tools>"
+
+                # insert envrionments
+                message["content"] = message["content"] + f"\n\n<environment_setup>\n\n{ENVIRONMENT_GUIDELINES}\n\n</environment_setup>"
+
+                # insert trajectory plan
+                if initial_trajectory:
+                    message["content"] = message["content"] + EXECUTION_GUIDELINES_PROMPT.format(initial_trajectory=initial_trajectory, node_checklist=node_checklist, achieved_trajectory=achieved_trajectory, query=query)
+
+        system_instruction, anthropic_messages = self._convert_messages(messages)
+
+        response = self.client.messages.create(
+            model=self.model,
+            system=system_instruction or "",
+            messages=anthropic_messages,
+            max_tokens=8000,
+            temperature=0.0,
+        )
+
+        self._update_tokens(response.usage, name)
+
+        return [self._extract_text(response)]
+
+    def llm_run(self, SystemPrompt, UserPrompt, name="default"):
+        """
+        Employ the LLM to response the prompt.
+        """
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                system=SystemPrompt,
+                messages=[{"role": "user", "content": UserPrompt}],
+                max_tokens=8000,
+                temperature=0.0,
+            )
+            response_content = self._extract_text(response)
+            self._update_tokens(response.usage, name)
+        except Exception:
+            response_content = "FAILED GENERATION."
+
+        return response_content
