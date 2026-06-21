@@ -52,7 +52,7 @@ The model provider is chosen automatically from the `--model` name:
 | OpenAI     | `gpt-...`                                      | `OPENAI_API_KEY`     |
 | Google     | `gemini-...`                                   | `GOOGLE_API_KEY` (Vertex: `GCP_PROJECT`, `GCP_LOCATION`) |
 | Anthropic  | `anthropic:claude-...` or `claude-...`         | `ANTHROPIC_API_KEY`  |
-| Local      | `local:...` or `qwen...` (e.g. `Qwen3-30B-A3B-Instruct-2507`) | `LOCAL_API_BASE`, `LOCAL_API_KEY` |
+| Local      | `local:...`, or a bare `qwen...` / `llama...` name (e.g. `Qwen3-30B-A3B-Instruct-2507`, `Llama-3.3-70B-Instruct`) | `LOCAL_API_BASE`, `LOCAL_API_KEY` |
 | OpenRouter | anything else                                  | `OPENROUTER_API_KEY` |
 
 Set whichever key matches the model you plan to run:
@@ -64,16 +64,25 @@ export ANTHROPIC_API_KEY=your_key
 export OPENROUTER_API_KEY=your_key
 ```
 
-### Locally-served models (e.g. Qwen3-30B-A3B-Instruct-2507)
+### Locally-served models (e.g. Qwen3-30B-A3B-Instruct-2507, Llama-3.3-70B-Instruct)
 
-Any OpenAI-compatible server (vLLM, SGLang, Ollama, ...) is supported. Model names
-starting with `qwen` (case-insensitive) or prefixed with `local:` are routed to the
-local endpoint. For example, serve the model with vLLM:
+Any OpenAI-compatible server (vLLM, SGLang, Ollama, ...) is supported. A model is
+routed to the local endpoint when its name is prefixed with `local:`, or when it is a
+bare `qwen...` / `llama...` served-model name (case-insensitive, with no provider
+`/` — names like `meta-llama/...` still go to OpenRouter). For example, serve a model
+with vLLM:
 
 ```bash
+# Qwen
 python -m vllm.entrypoints.openai.api_server \
   --model Qwen/Qwen3-30B-A3B-Instruct-2507 \
   --served-model-name Qwen3-30B-A3B-Instruct-2507 \
+  --port 8000
+
+# Llama
+python -m vllm.entrypoints.openai.api_server \
+  --model meta-llama/Llama-3.3-70B-Instruct \
+  --served-model-name Llama-3.3-70B-Instruct \
   --port 8000
 ```
 
@@ -84,8 +93,8 @@ export LOCAL_API_BASE=http://localhost:8000/v1   # optional, this is the default
 export LOCAL_API_KEY=EMPTY                        # optional, this is the default
 ```
 
-and pass `--model Qwen3-30B-A3B-Instruct-2507` (or `--model local:<your-model>`) to
-any of the commands below.
+and pass e.g. `--model Qwen3-30B-A3B-Instruct-2507` or `--model Llama-3.3-70B-Instruct`
+(or `--model local:<your-served-name>`) to any of the commands below.
 
 ## How to Run (AgentDojo)
 
@@ -182,9 +191,23 @@ Please refer to `ASB_DRIFT/README.md`.
 
 
 ## Inspect Results
-Results are cached under `runs/<model>/<suite>/...`. Each task writes a JSON file
-recording the configuration (which defense flags were on, attack type), the full
-conversation, token usage, and the `utility` / `security` outcomes.
+Results are written under `logs/`, following AgentDojo's per-task layout. The model
+folder carries a `+drift` suffix when the DRIFT defense is enabled and is the bare
+model name for the undefended (original) model, so defended and baseline runs never
+collide:
+
+```
+logs/
+└── Llama-3.3-70B-Instruct+drift/        # bare "Llama-3.3-70B-Instruct" for the original model
+    └── banking/
+        └── user_task_0/
+            ├── none/none.json                               # benign run
+            └── important_instructions/injection_task_0.json # under-attack run
+```
+
+Each task writes a JSON file recording the configuration (which defense flags were
+on, attack type), the full conversation, token usage, and the `utility` / `security`
+outcomes.
 
 
 ## References
