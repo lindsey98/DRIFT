@@ -23,8 +23,6 @@ class DRIFTLLM(PromptingLLM):
         """It places the output of the tool call in the <function_call> tags.
         """
 
-        function_call_signature = create_python_function_from_tool_call(tool_message["tool_call"])
-        function_call = f"<function_call>{function_call_signature}</function_call>"
         if tool_message["error"] is None:
             tool_result = f"{tool_message['content']}"
         else:
@@ -188,12 +186,7 @@ class DRIFTLLM(PromptingLLM):
         """Judge whether if the deviated function call aligns with the original user query intent.
         """
 
-        obs = ""
-        if conversations[-1]["role"] == "tool":
-            conv = conversations[-1]
-            obs = conversations
-            # obs = f"<Observations>\n{conv}\n<Observations>"
-        guidelines = f"""                
+        guidelines = f"""
                 You are operating within an agent-based framework, where an initial function trajectory plan is created to fulfill a user's task. During execution, tool-calling actions may cause deviations from this original trajectory due to dynamic interactions.
 
                 You will be provided with the following:
@@ -683,12 +676,12 @@ class DRIFTLLM(PromptingLLM):
         if self.args.dynamic_validation:
             error_message, output = self.trajectory_constraint_validation(to_call_function, output, query, messages)
             if error_message:
-                error_message["content"] = f"</function_error>\n{error_message}\n</function_error>"
+                error_message["content"] = f"<function_error>\n{error_message['content']}\n</function_error>"
                 return query, runtime, env, [*messages, output, error_message], extra_args
-            
+
             error_message, output = self.checklist_constraint_validation(json_tool_calls, output, query, messages)
             if error_message:
-                error_message["content"] = f"</function_error>\n{error_message}\n</function_error>"
+                error_message["content"] = f"<function_error>\n{error_message['content']}\n</function_error>"
                 return query, runtime, env, [*messages, output, error_message], extra_args
 
         return query, runtime, env, [*messages, output], extra_args
