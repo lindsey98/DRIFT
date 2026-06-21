@@ -52,6 +52,7 @@ The model provider is chosen automatically from the `--model` name:
 | OpenAI     | `gpt-...`                                      | `OPENAI_API_KEY`     |
 | Google     | `gemini-...`                                   | `GOOGLE_API_KEY` (Vertex: `GCP_PROJECT`, `GCP_LOCATION`) |
 | Anthropic  | `anthropic:claude-...` or `claude-...`         | `ANTHROPIC_API_KEY`  |
+| Local      | `local:...` or `qwen...` (e.g. `Qwen3-30B-A3B-Instruct-2507`) | `LOCAL_API_BASE`, `LOCAL_API_KEY` |
 | OpenRouter | anything else                                  | `OPENROUTER_API_KEY` |
 
 Set whichever key matches the model you plan to run:
@@ -62,6 +63,29 @@ export GOOGLE_API_KEY=your_key
 export ANTHROPIC_API_KEY=your_key
 export OPENROUTER_API_KEY=your_key
 ```
+
+### Locally-served models (e.g. Qwen3-30B-A3B-Instruct-2507)
+
+Any OpenAI-compatible server (vLLM, SGLang, Ollama, ...) is supported. Model names
+starting with `qwen` (case-insensitive) or prefixed with `local:` are routed to the
+local endpoint. For example, serve the model with vLLM:
+
+```bash
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen3-30B-A3B-Instruct-2507 \
+  --served-model-name Qwen3-30B-A3B-Instruct-2507 \
+  --port 8000
+```
+
+Then point DRIFT at it (defaults: `http://localhost:8000/v1` and key `EMPTY`):
+
+```bash
+export LOCAL_API_BASE=http://localhost:8000/v1   # optional, this is the default
+export LOCAL_API_KEY=EMPTY                        # optional, this is the default
+```
+
+and pass `--model Qwen3-30B-A3B-Instruct-2507` (or `--model local:<your-model>`) to
+any of the commands below.
 
 ## How to Run (AgentDojo)
 

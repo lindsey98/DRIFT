@@ -420,6 +420,36 @@ class GoogleModel():
             self.tokens_dict[name]["total_tokens"] += t_t
 
 
+class LocalModel(OpenRouterModel):
+    """Client for a locally-served, OpenAI-compatible model endpoint.
+
+    Works with servers such as vLLM, SGLang, or Ollama that expose the OpenAI
+    `/v1/chat/completions` API (e.g. `python -m vllm.entrypoints.openai.api_server
+    --model Qwen/Qwen3-30B-A3B-Instruct-2507`). The base URL and API key are read
+    from the `LOCAL_API_BASE` and `LOCAL_API_KEY` environment variables, defaulting
+    to `http://localhost:8000/v1` and `EMPTY` (the vLLM placeholder key).
+
+    Inference (`agent_run` / `llm_run`) is inherited from `OpenRouterModel`; only the
+    underlying client endpoint differs.
+    """
+
+    def __init__(self, model="Qwen3-30B-A3B-Instruct-2507", api_key=None, api_base=None, logger=None):
+        self.api_base = api_base or os.getenv("LOCAL_API_BASE", "http://localhost:8000/v1")
+        self.api_key = api_key or os.getenv("LOCAL_API_KEY", "EMPTY")
+        self.model = model
+        self.logger = logger
+        self.logger.info(f"Initial Model {model}")
+        self.client = openai.OpenAI(api_key=self.api_key, base_url=self.api_base)
+
+        self.logger.info(f"Using local model {model} at {self.api_base}.")
+        self.completion_tokens = 0
+        self.prompt_tokens = 0
+        self.total_tokens = 0
+        self.label = "Local"
+
+        self.tokens_dict = {"total_completion_tokens": 0, "total_prompt_tokens": 0, "total_total_tokens": 0}
+
+
 class AnthropicModel():
     def __init__(self, model="claude-sonnet-4-5-20250929", api_key=None, logger=None):
         # Anthropic Client
