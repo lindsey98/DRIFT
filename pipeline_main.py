@@ -10,8 +10,7 @@ from DRIFTToolsExecutionLoop import DRIFTToolsExecutionLoop
 
 def main(args, suite_type):
     benchmark_version = args.benchmark_version
-    suites = tuple(get_suites(benchmark_version).keys())
-    suites = (suite_type,) # banking, slack, travel, workspace
+    suites = (suite_type,)  # one suite per call, e.g. banking, slack, travel, workspace
 
     model_name = args.model
 
@@ -28,22 +27,12 @@ def main(args, suite_type):
         os.makedirs(output_dir, exist_ok=True)
 
     # Set Attacker
-    if args.do_attack:
-        attacker = args.attack_type
-    else:
-        attacker = None
-
-    # if attacker is not None:
-    #     save_dir = os.path.join(output_dir, attacker)
-    
-    # else:
-    #     save_dir = os.path.join(output_dir, "user_task")
+    attacker = args.attack_type if args.do_attack else None
 
     save_dir = output_dir
-
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
-    
+
     logger_path = os.path.join(save_dir, "log.txt")
     logger = get_logger(logger_path)
     logger.info(f"Log File is saved at: {logger_path}")
@@ -84,37 +73,22 @@ def main(args, suite_type):
         client = OpenRouterModel(model=args.model, logger=logger)
         tools_pipeline_name = args.model
         logger.info(f"Using OpenRouter Client: {args.model}")
-        # raise ValueError("Invalid model name.")
 
     llm = DRIFTLLM(args, client, logger=logger)
 
-    tools_loop = DRIFTToolsExecutionLoop(
-        [
-            ToolsExecutor(),
-            # PromptInjectionDetector(),
-            llm,
-        ]
-    )
-    tools_pipeline = AgentPipeline(
-        [
-            # SystemMessage("You are a helpful agent assistant with superior ."),
-            InitQuery(),
-            llm,
-            tools_loop,
-        ]
-    )
+    tools_loop = DRIFTToolsExecutionLoop([ToolsExecutor(), llm])
+    tools_pipeline = AgentPipeline([InitQuery(), llm, tools_loop])
 
-    for suite_name in suites:
-        suite = get_suite(benchmark_version, suite_name)
-        task_suite = DRIFTTaskSuite(
-            args,
-            suite.name,
-            suite.environment_type,
-            suite.tools,
-            suite.data_path,
-            suite.benchmark_version,
-            parent_instance = suite,
-        )
+    suite = get_suite(benchmark_version, suite_type)
+    task_suite = DRIFTTaskSuite(
+        args,
+        suite.name,
+        suite.environment_type,
+        suite.tools,
+        suite.data_path,
+        suite.benchmark_version,
+        parent_instance=suite,
+    )
 
     if args.target_user_tasks is None:
         tasks_to_run = task_suite.user_tasks.values()
@@ -127,8 +101,7 @@ def main(args, suite_type):
 
     utility_result = []
     security_result = []
-    tools_pipeline.name = tools_pipeline_name # ['meta-llama/Llama-3-70b-chat-hf', 'gemini-1.5-pro-002', 'claude-3-sonnet-20240229', command-r', 'command-r'-plus, 'gpt-3.5-turbo-0125', 'gpt-4o-2024-05-13', 'mistralai/Mixtral-8x7B-Instruct-v0.1']
-    # tools_pipeline.name = "meta-llama/Llama-3-70b-chat-hf"
+    tools_pipeline.name = tools_pipeline_name
 
     resume_utility = 0
     resume_security = 0
@@ -220,7 +193,7 @@ def main(args, suite_type):
             with open(result_file_path, "w") as f:
                 json.dump({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": None, "attack_type": None, "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, f, indent=4)
 
-                logger.info(f"user_task_{user_task_idx} Utility Success Ratio: {utility_result.count(True) + resume_utility} / {len(utility_result) + resume_total}")
+            logger.info(f"user_task_{user_task_idx} Utility Success Ratio: {utility_result.count(True) + resume_utility} / {len(utility_result) + resume_total}")
 
     logger.info(f"Overall Utility Success Ratio: {(utility_result.count(True) + resume_utility) / (len(utility_result) + resume_total)}")
     logger.info(f"Overall Attack Success Ratio: {(security_result.count(True) + resume_security) / (len(security_result) + resume_total)}")
@@ -232,6 +205,3 @@ if __name__ == "__main__":
     suites = args.suites.split(",")
     for suite_type in suites:
         main(args, suite_type)
-
-
-    

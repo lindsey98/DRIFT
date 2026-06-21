@@ -165,9 +165,11 @@ cd AgentDyn
 pip install -e .
 ```
 
-This additionally supports the `shopping`, `github`, and `dailylife` suites. Use the
-same commands as above, swapping the suites — for example, the IPI guard defense
-under attack:
+This additionally supports the `shopping`, `github`, and `dailylife` suites. AgentDyn
+shares the exact same `pipeline_main.py` interface as AgentDojo — the same model
+providers, the same four attack/defense configurations, and the same
+`logs/<model>[+drift]/<suite>/...` output layout — so only the `--suites` value
+changes. For example, the IPI guard defense under attack:
 
 ```bash
 python pipeline_main.py \
