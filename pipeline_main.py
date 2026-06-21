@@ -15,12 +15,15 @@ def main(args, suite_type):
 
     model_name = args.model
 
+    # Encode the defense configuration in the output path: "+drift" when any DRIFT
+    # defense flag is on, bare model name otherwise (the undefended/original model).
+    defense_on = args.build_constraints or args.injection_isolation or args.dynamic_validation
+    model_dir = f"{model_name}+drift" if defense_on else model_name
     if args.adaptive_attack:
-        output_name = f"{model_name}-adaptive_attack/{suites[0]}"
-    else:
-        output_name = f"{model_name}/{suites[0]}"
+        model_dir = f"{model_dir}-adaptive_attack"
+    output_name = f"{model_dir}/{suites[0]}"
 
-    output_dir = os.path.join("runs", output_name)
+    output_dir = os.path.join("logs", output_name)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir, exist_ok=True)
 
@@ -64,9 +67,14 @@ def main(args, suite_type):
         tools_pipeline_name = anthropic_model
         logger.info(f"Using Anthropic Client: {anthropic_model}")
 
-    elif model_name.startswith("local:") or model_name.lower().startswith("qwen"):
-        # Locally-served, OpenAI-compatible model (e.g. Qwen3-30B-A3B-Instruct-2507 via vLLM).
-        # Accept either "local:Qwen3-30B-A3B-Instruct-2507" or "Qwen3-30B-A3B-Instruct-2507".
+    elif model_name.startswith("local:") or (
+        "/" not in model_name
+        and (model_name.lower().startswith("qwen") or model_name.lower().startswith("llama"))
+    ):
+        # Locally-served, OpenAI-compatible model served via vLLM/SGLang/Ollama, e.g.
+        # Qwen3-30B-A3B-Instruct-2507 or Llama-3.3-70B-Instruct. Accept either a
+        # "local:<name>" prefix or a bare Qwen/Llama served-model name (no provider
+        # slash, which would otherwise route to OpenRouter, e.g. meta-llama/...).
         local_model = model_name.split("local:", 1)[-1]
         client = LocalModel(model=local_model, logger=logger)
         tools_pipeline_name = local_model
