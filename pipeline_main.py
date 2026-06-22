@@ -1,3 +1,4 @@
+import glob
 import time
 from client import OpenAIModel, OpenRouterModel, GoogleModel, AnthropicModel, LocalModel
 
@@ -8,6 +9,17 @@ from DRIFTTaskSuite import DRIFTTaskSuite
 from DRIFTToolsExecutionLoop import DRIFTToolsExecutionLoop
 
 
+def get_model_dir(args):
+    """Output sub-directory for a run: "<model>+drift" when any DRIFT defense flag is
+    on (bare model name otherwise), with an "-adaptive_attack" suffix when applicable.
+    """
+    defense_on = args.build_constraints or args.injection_isolation or args.dynamic_validation
+    model_dir = f"{args.model}+drift" if defense_on else args.model
+    if args.adaptive_attack:
+        model_dir = f"{model_dir}-adaptive_attack"
+    return model_dir
+
+
 def main(args, suite_type):
     benchmark_version = args.benchmark_version
     suites = (suite_type,)  # one suite per call, e.g. banking, slack, travel, workspace
@@ -16,10 +28,7 @@ def main(args, suite_type):
 
     # Encode the defense configuration in the output path: "+drift" when any DRIFT
     # defense flag is on, bare model name otherwise (the undefended/original model).
-    defense_on = args.build_constraints or args.injection_isolation or args.dynamic_validation
-    model_dir = f"{model_name}+drift" if defense_on else model_name
-    if args.adaptive_attack:
-        model_dir = f"{model_dir}-adaptive_attack"
+    model_dir = get_model_dir(args)
     output_name = f"{model_dir}/{suites[0]}"
 
     output_dir = os.path.join("logs", output_name)
@@ -201,9 +210,58 @@ def main(args, suite_type):
     logger.info(f"Overall Attack Success Ratio: {(security_result.count(True) + resume_security) / (len(security_result) + resume_total)}")
     logger.info(f"{suite_type} Done!")
 
+def print_results(args):
+    """Aggregate and print utility/security per suite (and the average) from the
+    cached result JSONs once the evaluation is finished.
+    """
+    log_dir = "logs"
+    model = get_model_dir(args)
+    attack = args.attack_type if args.do_attack else None
+
+    results = {}
+    for suite in args.suites.split(","):
+        if attack is None:
+            pattern = f"{log_dir}/{model}/{suite}/user_task_*/none/none.json"
+        else:
+            pattern = f"{log_dir}/{model}/{suite}/user_task_*/{attack}/injection_task_*.json"
+
+        files = glob.glob(pattern)
+        if not files:
+            continue
+        utility_scores, security_scores = [], []
+        for f in files:
+            with open(f) as fp:
+                data = json.load(fp)
+            if "utility" in data:
+                utility_scores.append(data["utility"])
+            if "security" in data:
+                security_scores.append(data["security"])
+        results[suite] = {
+            "utility": sum(utility_scores) / len(utility_scores) if utility_scores else "N/A",
+            "security": sum(security_scores) / len(security_scores) if security_scores else "N/A",
+        }
+
+    print(f"\nModel: {model}    Attack: {attack}")
+    print(f"{'Suite':<12} {'Utility':>8} {'Security':>10}")
+    print("-" * 32)
+    for suite, scores in results.items():
+        print(f"{suite:<12} {str(scores['utility'])[:6]:>8} {str(scores['security'])[:6]:>10}")
+
+    u = [v["utility"] for v in results.values() if isinstance(v["utility"], float)]
+    s = [v["security"] for v in results.values() if isinstance(v["security"], float)]
+    print("-" * 32)
+    if u:
+        print(f"{'avg':<12} {sum(u)/len(u):>8.3f}", end="")
+    if s:
+        print(f" {sum(s)/len(s):>10.3f}", end="")
+    print()
+
+
 if __name__ == "__main__":
     args = get_args()
     set_seed(args.seed)
     suites = args.suites.split(",")
     for suite_type in suites:
         main(args, suite_type)
+
+    print_results(args)
