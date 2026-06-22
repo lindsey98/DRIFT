@@ -20,6 +20,33 @@ def get_model_dir(args):
     return model_dir
 
 
+def resolve_attack_pipeline_name(model_name):
+    """Map a `--model` value onto a name that agentdojo's attacks recognize.
+
+    agentdojo derives the victim model label for prompt-injection attacks (e.g.
+    `important_instructions`) by substring-matching the pipeline name against a fixed
+    table (`agentdojo.models.MODEL_NAMES`), and raises for anything unknown. We map
+    each provider/family onto a canonical recognized key, defaulting to "local"
+    (-> "Local model") for locally-served or otherwise unrecognized models.
+    """
+    name = model_name.lower()
+    if name.startswith("gpt-"):
+        return "gpt-4o-2024-05-13"          # -> GPT-4
+    if "claude" in name:
+        return "claude-3-5-sonnet-20240620"  # -> Claude
+    if name.startswith("gemini-"):
+        return "gemini-1.5-pro-002"          # -> AI model developed by Google
+    if "command-r-plus" in name:
+        return "command-r-plus"
+    if "command-r" in name:
+        return "command-r"
+    if "mixtral" in name:
+        return "mistralai/Mixtral-8x7B-Instruct-v0.1"
+    if "llama-3-70b" in name:
+        return "meta-llama/Llama-3-70b-chat-hf"
+    return "local"                           # -> Local model
+
+
 def main(args, suite_type):
     benchmark_version = args.benchmark_version
     suites = (suite_type,)  # one suite per call, e.g. banking, slack, travel, workspace
@@ -50,19 +77,16 @@ def main(args, suite_type):
 
     if model_name.startswith("gpt-"):
         client = OpenAIModel(model=args.model, logger=logger)
-        tools_pipeline_name = 'gpt-4o-2024-05-13'
         logger.info(f"Using OpenAI Client: {args.model}")
 
     elif model_name.startswith("gemini-"):
         client = GoogleModel(model=args.model, logger=logger)
-        tools_pipeline_name = args.model
         logger.info(f"Using Google Client: {args.model}")
 
     elif model_name.startswith("anthropic:") or model_name.startswith("claude"):
         # Accept either "anthropic:claude-sonnet-4-5-20250929" or "claude-sonnet-4-5-20250929".
         anthropic_model = model_name.split("anthropic:", 1)[-1]
         client = AnthropicModel(model=anthropic_model, logger=logger)
-        tools_pipeline_name = anthropic_model
         logger.info(f"Using Anthropic Client: {anthropic_model}")
 
     elif model_name.startswith("local:") or (
@@ -75,12 +99,10 @@ def main(args, suite_type):
         # slash, which would otherwise route to OpenRouter, e.g. meta-llama/...).
         local_model = model_name.split("local:", 1)[-1]
         client = LocalModel(model=local_model, logger=logger)
-        tools_pipeline_name = local_model
         logger.info(f"Using Local Client: {local_model}")
 
     else:
         client = OpenRouterModel(model=args.model, logger=logger)
-        tools_pipeline_name = args.model
         logger.info(f"Using OpenRouter Client: {args.model}")
 
     llm = DRIFTLLM(args, client, logger=logger)
@@ -110,7 +132,7 @@ def main(args, suite_type):
 
     utility_result = []
     security_result = []
-    tools_pipeline.name = tools_pipeline_name
+    tools_pipeline.name = resolve_attack_pipeline_name(model_name)
 
     resume_utility = 0
     resume_security = 0
