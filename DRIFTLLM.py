@@ -18,6 +18,7 @@ class DRIFTLLM(PromptingLLM):
         self.node_checklist = "None"
         self.initial_node_checklist = "None"
         self.tool_permissions = {}
+        self.detected_injections = []
 
     def _tool_message_to_user_message(self, tool_message) -> dict:
         """It places the output of the tool call in the <function_call> tags.
@@ -336,6 +337,10 @@ class DRIFTLLM(PromptingLLM):
         self.function_trajectory = []
         self.achieved_function_trajectory = []
         self.node_checklist = "None"
+        # Reset the per-task initial constraints so a task whose completion lacks the
+        # tags does not inherit the previous task's trajectory/checklist in the log.
+        self.initial_function_trajectory = []
+        self.initial_node_checklist = "None"
 
         if ("<function_trajectory>" in completion[0]):
             try:
@@ -397,6 +402,9 @@ class DRIFTLLM(PromptingLLM):
 
             if len(replace_list) == 0:
                 return True, messages, openai_messages
+
+            # Record the injected instructions detected in memory for this task.
+            self.detected_injections.extend(replace_list)
 
             # Injection Isolation Module
             # define mask function
