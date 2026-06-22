@@ -11,101 +11,58 @@
 <a target="_blank"><img src="assets/framework.png" alt="framework" style="width: 80%; min-width: 200px; display: block; margin: auto;"></a>
 </p>
 
-The official implementation of NeurIPS 2025 paper "[DRIFT: Dynamic Rule-Based Defense with Injection Isolation for Securing LLM Agents](https://www.arxiv.org/pdf/2506.12104)".
+Official implementation of the NeurIPS 2025 paper "[DRIFT: Dynamic Rule-Based Defense with Injection Isolation for Securing LLM Agents](https://www.arxiv.org/pdf/2506.12104)". DRIFT defends tool-using LLM agents against indirect prompt injection via three components, toggled by CLI flags:
 
-## Update
-- [2026.4.19] 🛠️ Update the evaluation on AgentDyn.
-- [2026.1.30] 🛠️ Support the evaluation on more agents.
-- [2026.1.30] 🛠️ Update the evaluation code on ASB.
+- `--build_constraints` — build an initial function-trajectory plan + parameter checklist from the user query.
+- `--injection_isolation` — detect and isolate injected instructions in tool results.
+- `--dynamic_validation` — validate each step against the plan/checklist at runtime.
 
-
-## Overview
-
-DRIFT is an indirect prompt injection (IPI) defense for tool-using LLM agents. It
-guards the agent with three components, all driven from `pipeline_main.py`:
-
-- `--build_constraints` — build an initial function-trajectory plan and parameter checklist from the user query.
-- `--injection_isolation` — detect and isolate injected instructions found inside tool results.
-- `--dynamic_validation` — validate each step against the plan/checklist as the agent runs.
-
-Throughout this README we refer to running with **all three flags enabled** as the
-**IPI guard defense**, and running with **none of them** as the **original model**
-(the undefended baseline). Attacks are toggled with `--do_attack` and selected with
-`--attack_type` (e.g., `important_instructions`).
-
+Enabling all three = the **DRIFT defense**; enabling none = the **original model** (undefended baseline).
 
 ## Installation
 
 ```bash
-conda create -n drift python=3.11
-source activate drift
-pip install "agentdojo==0.1.35"
-pip install -r requirements.txt
+conda create -n drift python=3.11 && conda activate drift
+pip install "agentdojo==0.1.35" -r requirements.txt
 ```
 
-## API Keys
+## Models & API Keys
 
-The model provider is chosen automatically from the `--model` name:
+The provider is selected automatically from the `--model` name. Export the matching key.
 
-| Provider   | Model prefix                                  | Environment variable |
-|------------|-----------------------------------------------|----------------------|
-| OpenAI     | `gpt-...`                                      | `OPENAI_API_KEY`     |
-| Google     | `gemini-...`                                   | `GOOGLE_API_KEY` (Vertex: `GCP_PROJECT`, `GCP_LOCATION`) |
-| Anthropic  | `anthropic:claude-...` or `claude-...`         | `ANTHROPIC_API_KEY`  |
-| Local      | `local:...`, or a bare `qwen...` / `llama...` name (e.g. `Qwen3-30B-A3B-Instruct-2507`, `Llama-3.3-70B-Instruct`) | `LOCAL_API_BASE`, `LOCAL_API_KEY` |
-| OpenRouter | anything else                                  | `OPENROUTER_API_KEY` |
+| Provider   | `--model` example                              | Env var(s) |
+|------------|------------------------------------------------|------------|
+| OpenAI     | `gpt-4o-mini-2024-07-18`                        | `OPENAI_API_KEY` |
+| Google     | `gemini-2.5-pro`                                | `GOOGLE_API_KEY` (Vertex: `GCP_PROJECT`, `GCP_LOCATION`) |
+| Anthropic  | `anthropic:claude-sonnet-4-5-20250929`          | `ANTHROPIC_API_KEY` |
+| Local      | `Qwen3-30B-A3B-Instruct-2507`, `Llama-3.3-70B-Instruct`, or `local:<name>` | `LOCAL_API_BASE`, `LOCAL_API_KEY` |
+| OpenRouter | anything else (e.g. `meta-llama/Llama-3-70b-chat-hf`) | `OPENROUTER_API_KEY` |
 
-Set whichever key matches the model you plan to run:
-
-```bash
-export OPENAI_API_KEY=your_key
-export GOOGLE_API_KEY=your_key
-export ANTHROPIC_API_KEY=your_key
-export OPENROUTER_API_KEY=your_key
-```
-
-### Locally-served models (e.g. Qwen3-30B-A3B-Instruct-2507, Llama-3.3-70B-Instruct)
-
-Any OpenAI-compatible server (vLLM, SGLang, Ollama, ...) is supported. A model is
-routed to the local endpoint when its name is prefixed with `local:`, or when it is a
-bare `qwen...` / `llama...` served-model name (case-insensitive, with no provider
-`/` — names like `meta-llama/...` still go to OpenRouter). For example, serve a model
-with vLLM:
+**Local models:** any OpenAI-compatible server (vLLM/SGLang/Ollama) works. Bare `qwen…`/`llama…` names (no `/`) and `local:…` route to `LOCAL_API_BASE` (default `http://localhost:8000/v1`, key `EMPTY`). Example:
 
 ```bash
-# Qwen
 python -m vllm.entrypoints.openai.api_server \
-  --model Qwen/Qwen3-30B-A3B-Instruct-2507 \
-  --served-model-name Qwen3-30B-A3B-Instruct-2507 \
-  --port 8000
-
-# Llama
-python -m vllm.entrypoints.openai.api_server \
-  --model meta-llama/Llama-3.3-70B-Instruct \
-  --served-model-name Llama-3.3-70B-Instruct \
-  --port 8000
+  --model Qwen/Qwen3-30B-A3B-Instruct-2507 --served-model-name Qwen3-30B-A3B-Instruct-2507 --port 8000
 ```
 
-Then point DRIFT at it (defaults: `http://localhost:8000/v1` and key `EMPTY`):
+## How to Run
+
+All benchmarks use the same entry point:
 
 ```bash
-export LOCAL_API_BASE=http://localhost:8000/v1   # optional, this is the default
-export LOCAL_API_KEY=EMPTY                        # optional, this is the default
+python pipeline_main.py --model <MODEL> [ATTACK] [DEFENSE] --suites <SUITES>
 ```
 
-and pass e.g. `--model Qwen3-30B-A3B-Instruct-2507` or `--model Llama-3.3-70B-Instruct`
-(or `--model local:<your-served-name>`) to any of the commands below.
+Pick the `[ATTACK]` and `[DEFENSE]` fragments for the configuration you want:
 
-## How to Run (AgentDojo)
+| Configuration                         | `[ATTACK]`                                          | `[DEFENSE]` |
+|---------------------------------------|-----------------------------------------------------|-------------|
+| Attack + DRIFT defense                | `--do_attack --attack_type important_instructions`  | `--build_constraints --injection_isolation --dynamic_validation` |
+| No attack + DRIFT defense             | *(none)*                                            | `--build_constraints --injection_isolation --dynamic_validation` |
+| Attack + original model               | `--do_attack --attack_type important_instructions`  | *(none)* |
+| No attack + original model            | *(none)*                                            | *(none)* |
 
-The examples below use the Anthropic model `anthropic:claude-sonnet-4-5-20250929`.
-You can swap in any supported model (e.g. `gpt-4o-mini-2024-07-18`,
-`gemini-2.5-pro`) by changing the `--model` flag. The `--suites` flag selects the
-AgentDojo suites to evaluate (`banking,slack,travel,workspace`).
-
-### 1. Important Instructions attack + IPI guard defense
-
-The defense (all three flags) running against the `important_instructions` attack:
+Example (attack + DRIFT defense on AgentDojo):
 
 ```bash
 python pipeline_main.py \
@@ -115,114 +72,41 @@ python pipeline_main.py \
   --suites banking,slack,travel,workspace
 ```
 
-### 2. No attack + IPI guard defense
+**Suites** — AgentDojo: `banking,slack,travel,workspace`. AgentDyn (after installing it, below): `shopping,github,dailylife`. Same interface for both.
 
-The defense running on clean tasks (measures utility under DRIFT, no injection):
+**Other flags:** `--adaptive_attack`, `--attack_type <name>` (see `utils.py` for the full list), `--target_user_tasks 1,4,7`, `--target_injection_tasks 1,2,3`, `--force_rerun`.
 
-```bash
-python pipeline_main.py \
-  --model anthropic:claude-sonnet-4-5-20250929 \
-  --build_constraints --injection_isolation --dynamic_validation \
-  --suites banking,slack,travel,workspace
-```
+### AgentDyn
 
-### 3. Important Instructions attack + original model
-
-The undefended baseline against the `important_instructions` attack (no DRIFT flags):
+Install the AgentDyn drop-in replacement, then use the same commands with the AgentDyn suites:
 
 ```bash
-python pipeline_main.py \
-  --model anthropic:claude-sonnet-4-5-20250929 \
-  --do_attack --attack_type important_instructions \
-  --suites banking,slack,travel,workspace
+git clone git@github.com:SaFo-Lab/AgentDyn.git && cd AgentDyn && pip install -e .
 ```
 
-### 4. No attack + original model
+### ASB
 
-The undefended baseline on clean tasks (measures vanilla utility):
+See [`ASB_DRIFT/README.md`](ASB_DRIFT/README.md).
 
-```bash
-python pipeline_main.py \
-  --model anthropic:claude-sonnet-4-5-20250929 \
-  --suites banking,slack,travel,workspace
-```
+## Results
 
-### Useful options
-
-- `--adaptive_attack` — evaluate under the adaptive attack.
-- `--attack_type` — choose the attack, e.g. `direct`, `ignore_previous`, `system_message`, `injecagent`, `tool_knowledge`, `important_instructions`, and several DoS variants (see `utils.py` for the full list).
-- `--target_user_tasks 1,4,7` / `--target_injection_tasks 1,2,3` — run a subset of tasks.
-- `--force_rerun` — re-run tasks even if a cached result already exists.
-
-
-## Evaluating on AgentDyn
-
-To evaluate on AgentDyn, replace the AgentDojo dependency with the AgentDyn version. First, run:
-
-```bash
-git clone git@github.com:SaFo-Lab/AgentDyn.git
-cd AgentDyn
-pip install -e .
-```
-
-This additionally supports the `shopping`, `github`, and `dailylife` suites. AgentDyn
-shares the exact same `pipeline_main.py` interface as AgentDojo — the same model
-providers, the same four attack/defense configurations, and the same
-`logs/<model>[+drift]/<suite>/...` output layout — so only the `--suites` value
-changes. For example, the IPI guard defense under attack:
-
-```bash
-python pipeline_main.py \
-  --model anthropic:claude-sonnet-4-5-20250929 \
-  --do_attack --attack_type important_instructions \
-  --build_constraints --injection_isolation --dynamic_validation \
-  --suites shopping,github,dailylife
-```
-
-And the original model with no attack:
-
-```bash
-python pipeline_main.py \
-  --model anthropic:claude-sonnet-4-5-20250929 \
-  --suites shopping,github,dailylife
-```
-
-
-## Evaluating on ASB
-Please refer to `ASB_DRIFT/README.md`.
-
-
-## Inspect Results
-Results are written under `logs/`, following AgentDojo's per-task layout. The model
-folder carries a `+drift` suffix when the DRIFT defense is enabled and is the bare
-model name for the undefended (original) model, so defended and baseline runs never
-collide:
+Results are written under `logs/<model>[+drift]/<suite>/<user_task>/<attack>/<injection_task>.json` (AgentDojo-style). The `+drift` suffix marks defended runs; the bare model name marks the original model, so the two never collide:
 
 ```
-logs/
-└── Llama-3.3-70B-Instruct+drift/        # bare "Llama-3.3-70B-Instruct" for the original model
-    └── banking/
-        └── user_task_0/
-            ├── none/none.json                               # benign run
-            └── important_instructions/injection_task_0.json # under-attack run
+logs/Llama-3.3-70B-Instruct+drift/banking/user_task_0/
+├── none/none.json                                # benign run
+└── important_instructions/injection_task_0.json  # under-attack run
 ```
 
-Each task writes a JSON file recording the configuration (which defense flags were
-on, attack type), the full conversation, token usage, and the `utility` / `security`
-outcomes.
+Each JSON records the config (defense flags, attack type), full conversation, token usage, and `utility` / `security` outcomes.
 
-
-## References
-
-If you find this work useful in your research or applications, we appreciate that if you can kindly cite:
+## Citation
 
 ```
-@articles{DRIFT,
+@article{DRIFT,
   title={DRIFT: Dynamic Rule-Based Defense with Injection Isolation for Securing LLM Agents},
   author={Hao Li and Xiaogeng Liu and Hung-Chun Chiu and Dianqi Li and Ning Zhang and Chaowei Xiao},
-  journal = {NeurIPS},
+  journal={NeurIPS},
   year={2025}
 }
 ```
-</content>
-</invoke>
