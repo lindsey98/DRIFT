@@ -65,6 +65,19 @@ def main(args, suite_type):
     # Set Attacker
     attacker = args.attack_type if args.do_attack else None
 
+    # Adaptive-attack variants stack on top of a base attack (e.g. important_instructions)
+    # via flags. `attacker` stays the real registered name for load_attack(); `run_label`
+    # carries a variant suffix so each variant writes to its OWN results directory and
+    # attack_type field instead of overwriting the base attack's logs.
+    run_label = attacker
+    if attacker is not None:
+        # Encode the injection-isolation state so runs that differ only by
+        # --injection_isolation don't overwrite each other's logs.
+        if not args.injection_isolation:
+            run_label = f"{run_label}+noiso"
+        if args.align_claim:
+            run_label = f"{run_label}+alignclaim"
+
     save_dir = output_dir
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
@@ -143,7 +156,7 @@ def main(args, suite_type):
         target_injection_tasks = args.target_injection_tasks
         if target_injection_tasks is not None:
             injection_tasks_to_run = {
-            injection_task_id: suite.get_injection_task_by_id(injection_task_id)
+            f"injection_task_{injection_task_id}": suite.get_injection_task_by_id(f"injection_task_{injection_task_id}")
             for injection_task_id in args.target_injection_tasks.split(",")
             }
             logger.info(f"Injection Tasks of {target_injection_tasks}.")
@@ -160,7 +173,7 @@ def main(args, suite_type):
                 injection_task_idx = int(match.group(1))
                 pre_total_tokens = llm.client.total_tokens
 
-                result_file_path = Path(save_dir) / f"user_task_{user_task_idx}" / attacker / f"injection_task_{injection_task_idx}.json"
+                result_file_path = Path(save_dir) / f"user_task_{user_task_idx}" / run_label / f"injection_task_{injection_task_idx}.json"
                 result_file_path.parent.mkdir(parents=True, exist_ok=True)
                 if not args.force_rerun and os.path.exists(result_file_path):
                     try:
@@ -181,13 +194,16 @@ def main(args, suite_type):
                 task_injections = attack.attack(user_task, injection_task)
 
                 llm.detected_injections = []
+                llm.alignment_decisions = []
+                llm.isolation_events = []
+                llm.events = []
                 start_time = time.time()
                 utility, security, messages = task_suite.run_task_with_pipeline(tools_pipeline, user_task, injection_task, task_injections)
                 end_time = time.time()
                 utility_result.append(utility)
                 security_result.append(security)
                 with open(result_file_path, "w") as f:
-                    json.dump({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": f"injection_task_{injection_task_idx}", "attack_type": f"{attacker}", "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "detected_injections": llm.detected_injections, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, f, indent=4)
+                    json.dump({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": f"injection_task_{injection_task_idx}", "attack_type": f"{run_label}", "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "align_claim": args.align_claim, "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "detected_injections": llm.detected_injections, "final_trajectory": llm.function_trajectory, "final_checklist": llm.node_checklist, "alignment_decisions": llm.alignment_decisions, "isolation_events": llm.isolation_events, "events": llm.events, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, f, indent=4)
 
                 logger.info(f"user_task_{user_task_idx} with injection_task_{injection_task_idx} Utility Success Ratio: {utility_result.count(True) + resume_utility} / {len(utility_result) + resume_total}")
                 logger.info(f"user_task_{user_task_idx} with injection_task_{injection_task_idx} Attack Success Ratio: {security_result.count(True) + resume_security} / {len(security_result) + resume_total}")
@@ -218,13 +234,16 @@ def main(args, suite_type):
 
 
             llm.detected_injections = []
+            llm.alignment_decisions = []
+            llm.isolation_events = []
+            llm.events = []
             start_time = time.time()
             utility, security, messages = task_suite.run_task_with_pipeline(tools_pipeline, user_task, injection_task=None, injections={})
             end_time = time.time()
             utility_result.append(utility)
             security_result.append(security)
             with open(result_file_path, "w") as f:
-                json.dump({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": None, "attack_type": None, "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "detected_injections": llm.detected_injections, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, f, indent=4)
+                json.dump({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": None, "attack_type": None, "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "detected_injections": llm.detected_injections, "final_trajectory": llm.function_trajectory, "final_checklist": llm.node_checklist, "alignment_decisions": llm.alignment_decisions, "isolation_events": llm.isolation_events, "events": llm.events, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, f, indent=4)
 
             logger.info(f"user_task_{user_task_idx} Utility Success Ratio: {utility_result.count(True) + resume_utility} / {len(utility_result) + resume_total}")
 
@@ -287,3 +306,12 @@ if __name__ == "__main__":
         main(args, suite_type)
 
     print_results(args)
+
+    # 一是你知道 agent 有哪些工具、每个工具的名字和参数 schema(格式)。
+    # 二是你还知道针对这个具体攻击目标,该填什么参数值——因为它直接取自该 injection task 的 ground truth,等于把"标准答案的那次调用"抄给模型。
+    # 所以不是模型自己去推,是攻击方(benchmark)预先算好这次 FunctionCall,连名字带参数一起塞进注入里。对应的威胁模型层级是:
+    #
+    # important_instructions:白盒程度较低,只知道 user 名和 model 名(用来伪装权威)。
+    # tool_knowledge:再加一层白盒,知道工具 API + 正确调用。这是最强假设,当"攻击上界"用。
+    #
+    # 一个要注意的点:它假设攻击者对 agent 内部工具集完全已知。真实场景里这不一定成立(工具名/schema 可能不公开),所以 tool_knowledge 的数字是"最坏情况",不代表真实可达的 ASR

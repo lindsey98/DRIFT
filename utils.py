@@ -39,6 +39,7 @@ def get_args(description='DRIFT'):
     parser.add_argument("--injection_isolation", action='store_true', help="Whether to detect injection instruction.")
     parser.add_argument("--dynamic_validation", action='store_true', help="Whether to validate dynamically.")
     parser.add_argument("--adaptive_attack", action='store_true', help="Whether to implement adaptive attack.")
+    parser.add_argument("--align_claim", action='store_true', help="Append a task-specific claim to the injection asserting it is aligned with / required by the user's actual task (targets the injection detector).")
 
     # Environment
     parser.add_argument('--seed', type=int, default=98, help='Random Seed.')

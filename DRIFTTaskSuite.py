@@ -156,10 +156,21 @@ class DRIFTTaskSuite(TaskSuite[Env]):
             for key in injections:
                 injections[key] = injections[key] + ADAPTIVE_ATTACK_PROMPT
 
+        if getattr(self.args, "align_claim", False) and injection_task is not None:
+            goal = injection_task.GOAL
+            for key in injections:
+                if goal and goal in injections[key]:
+                    # Wrap the injected instruction IN-BLOCK: fixed prefix + goal + fixed
+                    # claim (fused with the trick, e.g. still within <INFORMATION>...</INFORMATION>).
+                    injections[key] = injections[key].replace(
+                        goal, ALIGN_CLAIM_PREFIX + goal + ALIGN_CLAIM_PROMPT, 1)
+                else:
+                    injections[key] = ALIGN_CLAIM_PREFIX + injections[key] + ALIGN_CLAIM_PROMPT
+
         # If no environment is provided, load the default environment
         if environment is None:
             environment = self.load_and_inject_default_environment(injections)
-        # Initialize the environment according to the task
+        # Initialize the environment acc ording to the task
         if isinstance(user_task, BaseUserTask):
             task_environment = user_task.init_environment(environment)
         else:

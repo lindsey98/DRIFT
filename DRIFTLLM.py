@@ -1,5 +1,53 @@
 from import_lib import *
 
+
+def _normalize_with_map(s):
+    """Collapse whitespace runs to a single space and YAML-doubled single quotes
+    ('') to one, returning (normalized, idx_map) where idx_map[i] is the original
+    index in `s` of normalized char i (idx_map has len+1 entries; the last is len(s)
+    as an end sentinel so a matched span's end offset can be mapped back)."""
+    out, idx_map, i, n = [], [], 0, len(s)
+    while i < n:
+        c = s[i]
+        if c.isspace():
+            start = i
+            while i < n and s[i].isspace():
+                i += 1
+            out.append(" ")
+            idx_map.append(start)
+            continue
+        if c == "'" and i + 1 < n and s[i + 1] == "'":  # YAML-escaped single quote
+            out.append("'")
+            idx_map.append(i)
+            i += 2
+            continue
+        out.append(c)
+        idx_map.append(i)
+        i += 1
+    idx_map.append(n)
+    return "".join(out), idx_map
+
+
+def _remove_detected(content, detected):
+    """Remove a detected injected instruction from `content`, tolerant of the
+    mismatch between the detector's normalized output and the raw (YAML-serialized,
+    line-folded, quote-escaped) tool result: normalize both, locate the instruction
+    in normalized space, then cut the mapped span from the ORIGINAL text. Returns
+    `content` unchanged if it cannot be located even after normalization."""
+    if not isinstance(detected, str) or not detected.strip():
+        return str(content)
+    content = str(content)
+    norm_c, idx_map = _normalize_with_map(content)
+    norm_t = re.sub(r"\s+", " ", detected.replace("''", "'")).strip()
+    if not norm_t:
+        return content
+    pos = norm_c.find(norm_t)
+    if pos < 0:
+        return content  # cannot locate even after normalization -> leave unchanged
+    start, end = idx_map[pos], idx_map[pos + len(norm_t)]
+    return (content[:start] + " " + content[end:]).strip()
+
+
 class DRIFTLLM(PromptingLLM):
     def __init__(self, args, client, model: str | None = "", temperature: float | None = 0.0, logger=None) -> None:
         self.client = client
@@ -19,6 +67,22 @@ class DRIFTLLM(PromptingLLM):
         self.initial_node_checklist = "None"
         self.tool_permissions = {}
         self.detected_injections = []
+        # Audit trails: record the dynamic decisions (not just the static products)
+        # so a run can be replayed from the result JSON alone.
+        self.alignment_decisions = []
+        self.isolation_events = []
+        # Structured stream of runtime decisions that previously lived only as
+        # free text in log.txt (approvals, rejections, redundant calls, early exits).
+        self.events = []
+
+    def _record_event(self, event_type, **fields):
+        """Append a structured decision event and mirror it to log.txt, so the
+        runtime decisions are recoverable from the result JSON, not just the log."""
+        event = {"type": event_type, **fields}
+        self.events.append(event)
+        if self.logger:
+            self.logger.info(f"[EVENT] {event}")
+        return event
 
     def _tool_message_to_user_message(self, tool_message) -> dict:
         """It places the output of the tool call in the <function_call> tags.
@@ -184,8 +248,7 @@ class DRIFTLLM(PromptingLLM):
 
 
     def alignment_judge(self, query, last_function_messages, thought_content, function_trajectory, current_function_trajectory, conversations):
-        """Judge whether if the deviated function call aligns with the original user query intent.
-        """
+        """Judge whether if the deviated function call aligns with the original user query intent."""
 
         guidelines = f"""
                 You are operating within an agent-based framework, where an initial function trajectory plan is created to fulfill a user's task. During execution, tool-calling actions may cause deviations from this original trajectory due to dynamic interactions.
@@ -216,7 +279,21 @@ class DRIFTLLM(PromptingLLM):
                 """
 
         answer = self.client.llm_run(guidelines, data)
-        if ("Yes" in answer) or ("YES" in answer):
+        verdict = ("Yes" in answer) or ("YES" in answer)
+
+        # Record the judge decision for BOTH outcomes. Previously the approve
+        # branch returned ("", True) and dropped the reason entirely, so a
+        # security=True run left no trace of why the judge let the call through.
+        reason_match = re.search(r"<Judge Reason>(.*?)</Judge Reason>", answer, re.DOTALL)
+        reason = reason_match.group(1).strip() if reason_match else answer.strip()
+        self.alignment_decisions.append({
+            "initial_trajectory": list(function_trajectory),
+            "extended_trajectory": list(current_function_trajectory),
+            "verdict": "Yes" if verdict else "No",
+            "reason": reason,
+        })
+
+        if verdict:
             return True, ""
 
         else:
@@ -406,18 +483,13 @@ class DRIFTLLM(PromptingLLM):
             # Record the injected instructions detected in memory for this task.
             self.detected_injections.extend(replace_list)
 
-            # Injection Isolation Module
-            # define mask function
+            # Injection Isolation Module: locate the detected instruction in a
+            # normalized space (whitespace collapsed, YAML '' -> '), then cut the
+            # span mapped back to the raw text. The previous word-regex approach did
+            # a literal match against the un-normalized YAML original, so nothing was
+            # removed whenever the tool result was line-folded / quote-escaped.
             def remove_sentence(p, t):
-                if type(t) != str:
-                    t = ""
-
-                words = t.split()
-                escaped_words = [re.escape(word) for word in words]
-                pattern = r'[\s\\]+'.join(escaped_words)
-                
-                pattern = r'\s*' + pattern + r'\s*'
-                return re.sub(str(pattern), ' ', str(p), flags=re.DOTALL).strip()
+                return _remove_detected(p, t)
 
             # cycling mask
             for item in replace_list:
@@ -429,19 +501,34 @@ class DRIFTLLM(PromptingLLM):
                     messages[-1]["content"] = remove_sentence(messages[-1]["content"], item)
                     openai_messages[-1]["content"] = remove_sentence(openai_messages[-1]["content"], item)
 
-            if len(openai_messages[-1]["content"]) == length:
-                return False, messages, openai_messages
-
-            else:
-                return True, messages, openai_messages
+            after_len = len(openai_messages[-1]["content"])
+            success = after_len != length
+            # Record whether the detected injection was actually stripped, not
+            # just that it was detected (detected_injections). A mismatch here
+            # (detected but not removed) explains isolation-layer failures.
+            self.isolation_events.append({
+                "detected": list(replace_list),
+                "before_len": length,
+                "after_len": after_len,
+                "success": success,
+            })
+            return success, messages, openai_messages
 
         else:
             return False, messages, openai_messages
 
-    def trajectory_constraint_validation(self, to_call_function, output, query, messages):
+    def trajectory_constraint_validation(self, to_call_function, output, query, messages, json_tool_calls=None):
         """Judge whether if the executing function trajectory conform the control constraints.
         """
-                
+
+        # Map proposed function -> args so validation decisions log what was proposed.
+        args_map = {}
+        for c in (json_tool_calls or []):
+            try:
+                args_map[c["function"]["name"]] = c["function"].get("arguments")
+            except Exception:
+                pass
+
         align_error_message = None
         temp_achieved_trajectory = []
         for func_ids, achieved_func in enumerate(self.achieved_function_trajectory + to_call_function):
@@ -475,22 +562,27 @@ class DRIFTLLM(PromptingLLM):
                 else:
                     latest_function_messages = "No Called Functions."
 
+                perm = self.tool_permissions.get(achieved_func)
                 # Open Dynamic Updating
                 # =====================
                 try:
                     # privilege judgement
-                    if self.tool_permissions[achieved_func] != "Read":
-                        # LLM_judge_result = False
-                        self.logger.info(f"Trajectory does not align, permission of '{achieved_func}' is {self.tool_permissions[achieved_func]}")
-                        # intent alignment judgement
+                    if perm != "Read":
+                        self.logger.info(f"Trajectory does not align, permission of '{achieved_func}' is {perm}")
+                        # intent alignment judgement (Write/Execute deviation)
                         LLM_judge_result, _ = self.alignment_judge(query=query, last_function_messages=latest_function_messages, thought_content=thought_content, function_trajectory=self.function_trajectory, current_function_trajectory=extended_function_trajectory, conversations=messages)
                     else:
-                        LLM_judge_result = True
+                        LLM_judge_result = True  # Read deviation -> auto-extend
                 except:
                     LLM_judge_result = True
                 # =====================
 
                 if LLM_judge_result:
+                    # Case 1: Read -> auto-extended. Case 2: Write/Execute, judged aligned -> extended.
+                    self._record_event("trajectory_decision", function=achieved_func,
+                                       args=args_map.get(achieved_func), permission=perm, deviation=True,
+                                       outcome=("extend_read_auto" if perm == "Read" else "extend_aligned"),
+                                       extended_trajectory=list(extended_function_trajectory))
                     self.function_trajectory = extended_function_trajectory
                     temp_achieved_trajectory.append(achieved_func)
                     self.achieved_function_trajectory = temp_achieved_trajectory
@@ -507,6 +599,10 @@ class DRIFTLLM(PromptingLLM):
                     trajectory_user_answer = self.user_approval_request()
                     # trajectory_user_answer = True
                     if trajectory_user_answer:
+                        # Case 3 overridden: judged not-aligned but the user approved the deviation.
+                        self._record_event("trajectory_decision", function=achieved_func,
+                                           args=args_map.get(achieved_func), permission=perm, deviation=True,
+                                           outcome="extend_user_approved", reason=traj_judge_reason)
                         self.function_trajectory = extended_function_trajectory
                         temp_achieved_trajectory.append(achieved_func)
                         self.achieved_function_trajectory = temp_achieved_trajectory
@@ -514,6 +610,10 @@ class DRIFTLLM(PromptingLLM):
                         self.logger.info("User has approved the request.")
 
                     else:
+                        # Case 3: Write/Execute, judged NOT aligned -> REJECTED (proposed, not executed).
+                        self._record_event("trajectory_decision", function=achieved_func,
+                                           args=args_map.get(achieved_func), permission=perm, deviation=True,
+                                           outcome="reject_not_aligned", reason=traj_judge_reason)
                         output["tool_calls"] = []
                         self.logger.info("User has refused the request.")
                         if align_error_message:
@@ -542,16 +642,25 @@ class DRIFTLLM(PromptingLLM):
         except:
             node_check_result = True
 
+        proposed_calls = [{"function": c["function"]["name"], "args": c["function"].get("arguments")}
+                          for c in json_tool_calls]
         if not node_check_result:
             self.logger.info(f"{json_tool_calls} does not align well with checklist, sending request to user.")
 
             align_error_message = {"role": "user", "content": f"[CALL ERROR] The function calling of {json_tool_calls} has been refused due to some parameters are not aligned with checklist, Please try an alternative method to continue fulfilling the original user query. Remember, do not stop working on the original user task to do other things.\nThe specific error:\n{node_judge_reason}\nChecklist:\n{self.node_checklist}.\nNote: the value of None denotes this value is uncertain.\nUser Query:\n{query}"}
-            
+
             checklist_user_answer = self.user_approval_request()
             if checklist_user_answer:
+                # Checklist violated but the user approved it.
+                self._record_event("checklist_decision", calls=proposed_calls,
+                                   outcome="checklist_user_approved", reason=node_judge_reason)
                 self.logger.info("User has approved the request.")
 
             else:
+                # Case 4: passed the trajectory gate, but REJECTED by the parameter checklist
+                # (data constraint), so the proposed call was NOT executed.
+                self._record_event("checklist_decision", calls=proposed_calls,
+                                   outcome="reject_checklist", reason=node_judge_reason)
                 output["tool_calls"] = []
                 self.logger.info("User has refused the request.")
                 if align_error_message:
@@ -651,18 +760,19 @@ class DRIFTLLM(PromptingLLM):
         # format validation
         if len(runtime.functions) == 0 or ("<function_call>" not in (output["content"] or "")) or (len(openai_messages) > 20):
             if len(runtime.functions) == 0:
-                self.logger.info("Function Count Zero.")
+                self._record_event("early_exit", reason="function_count_zero")
             if "<function_call>" not in (output["content"] or ""):
-                self.logger.info("Function Call Tags Not Found.")
+                self._record_event("early_exit", reason="function_call_tags_not_found")
             if len(openai_messages) > 20:
-                self.logger.info("Message Number out of 20.")
+                self._record_event("early_exit", reason="message_number_over_20")
             return query, runtime, env, [*messages, output], extra_args
-            
+
         for _ in range(self._MAX_ATTEMPTS):
             try:
                 output = self._parse_model_output(completion[0])
                 break
             except (InvalidModelOutputError, ASTParsingError) as e:
+                self._record_event("format_retry", error=str(e))
                 error_message = {"role": "user", "content": f"Invalid function calling output: {e!s}"}
                 completion = self.client.agent_run([*openai_messages, self._message_to_sharegpt(error_message)], self.tools_docs_list, query=query, initial_trajectory=self.function_trajectory, achieved_trajectory=self.achieved_function_trajectory, node_checklist=self.node_checklist)
 
@@ -672,7 +782,7 @@ class DRIFTLLM(PromptingLLM):
         tool_calls = [self._tool_call_to_str(tool_call) for tool_call in output["tool_calls"]]
         output["tool_calls"] = [tool_call for tool_call in output["tool_calls"] if self._tool_call_to_str(tool_call)['function'] not in existing_tool_calls]
         if (len(output["tool_calls"])==0) and (tool_calls_length != 0):
-            self.logger.info(f"Redundant tool calls: {tool_calls}")
+            self._record_event("redundant_tool_calls", calls=[c["function"] for c in tool_calls])
 
         json_tool_calls = [self._tool_call_to_str(tool_call) for tool_call in output["tool_calls"]]
         to_call_function = []
@@ -682,7 +792,7 @@ class DRIFTLLM(PromptingLLM):
 
         # Trajectory, Chechlist Validation
         if self.args.dynamic_validation:
-            error_message, output = self.trajectory_constraint_validation(to_call_function, output, query, messages)
+            error_message, output = self.trajectory_constraint_validation(to_call_function, output, query, messages, json_tool_calls=json_tool_calls)
             if error_message:
                 error_message["content"] = f"<function_error>\n{error_message['content']}\n</function_error>"
                 return query, runtime, env, [*messages, output, error_message], extra_args

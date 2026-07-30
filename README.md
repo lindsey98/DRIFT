@@ -29,7 +29,8 @@ The provider is selected automatically from the `--model` name. Export the match
 | Local      | `Qwen3-30B-A3B-Instruct-2507`, `Llama-3.3-70B-Instruct`, or `local:<name>` | `LOCAL_API_BASE`, `LOCAL_API_KEY` |
 | OpenRouter | anything else (e.g. `meta-llama/Llama-3-70b-chat-hf`) | `OPENROUTER_API_KEY` |
 
-**Local models:** any OpenAI-compatible server (vLLM/SGLang/Ollama) works. Bare `qwen…`/`llama…` names (no `/`) and `local:…` route to `LOCAL_API_BASE` (default `http://localhost:8000/v1`, key `EMPTY`). Example:
+**Local models:** any OpenAI-compatible server (vLLM/SGLang/Ollama) works. 
+Bare `qwen…`/`llama…` names (no `/`) and `local:…` route to `LOCAL_API_BASE` (default `http://localhost:8000/v1`, key `EMPTY`). Example:
 
 ```bash
 python -m vllm.entrypoints.openai.api_server \
