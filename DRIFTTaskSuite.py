@@ -156,7 +156,12 @@ class DRIFTTaskSuite(TaskSuite[Env]):
             for key in injections:
                 injections[key] = injections[key] + ADAPTIVE_ATTACK_PROMPT
 
-        if getattr(self.args, "align_claim", False) and injection_task is not None:
+        # When repeated_instruction is also on, the align-claim wrap is applied around the
+        # whole repeated block upstream (pipeline_main), so skip it here to avoid wrapping
+        # only the central goal / double-wrapping.
+        if (getattr(self.args, "align_claim", False)
+                and not getattr(self.args, "repeated_instruction", False)
+                and injection_task is not None):
             goal = injection_task.GOAL
             for key in injections:
                 if goal and goal in injections[key]:
@@ -166,6 +171,21 @@ class DRIFTTaskSuite(TaskSuite[Env]):
                         goal, ALIGN_CLAIM_PREFIX + goal + ALIGN_CLAIM_PROMPT, 1)
                 else:
                     injections[key] = ALIGN_CLAIM_PREFIX + injections[key] + ALIGN_CLAIM_PROMPT
+
+        # When repeated_instruction is also on, the close-tag wrap is applied around the
+        # whole repeated block upstream (pipeline_main), so skip it here.
+        if (getattr(self.args, "close_tag", False)
+                and not getattr(self.args, "repeated_instruction", False)
+                and injection_task is not None):
+            goal = injection_task.GOAL
+            for key in injections:
+                if goal and goal in injections[key]:
+                    # Break out of the tool-result block right before the goal, so the
+                    # payload renders outside the tool-data region of the chat template.
+                    injections[key] = injections[key].replace(
+                        goal, CLOSE_TAG_PREFIX + goal + CLOSE_TAG_SUFFIX, 1)
+                else:
+                    injections[key] = CLOSE_TAG_PREFIX + injections[key] + CLOSE_TAG_SUFFIX
 
         # If no environment is provided, load the default environment
         if environment is None:

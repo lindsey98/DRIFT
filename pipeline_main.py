@@ -7,6 +7,29 @@ from utils import get_args, set_seed, get_logger
 from DRIFTLLM import DRIFTLLM
 from DRIFTTaskSuite import DRIFTTaskSuite
 from DRIFTToolsExecutionLoop import DRIFTToolsExecutionLoop
+from repeated_instruction import get_paraphrases, apply_repeated_instruction
+
+
+def compute_run_label(args):
+    """Directory / attack_type label for a run.
+
+    Base attack name plus variant suffixes so runs that differ only by a defense/attack
+    toggle (injection isolation off, align-claim wrap, close-tag, repeated-instruction)
+    write to their OWN results directory instead of overwriting the base attack's logs.
+    Returns None when no attack is active.
+    """
+    label = args.attack_type if args.do_attack else None
+    if label is None:
+        return None
+    if not args.injection_isolation:
+        label = f"{label}+noiso"
+    if args.align_claim:
+        label = f"{label}+alignclaim"
+    if args.close_tag:
+        label = f"{label}+closetag"
+    if args.repeated_instruction:
+        label = f"{label}+repeat{args.repeat_n}"
+    return label
 
 
 def get_model_dir(args):
@@ -69,14 +92,7 @@ def main(args, suite_type):
     # via flags. `attacker` stays the real registered name for load_attack(); `run_label`
     # carries a variant suffix so each variant writes to its OWN results directory and
     # attack_type field instead of overwriting the base attack's logs.
-    run_label = attacker
-    if attacker is not None:
-        # Encode the injection-isolation state so runs that differ only by
-        # --injection_isolation don't overwrite each other's logs.
-        if not args.injection_isolation:
-            run_label = f"{run_label}+noiso"
-        if args.align_claim:
-            run_label = f"{run_label}+alignclaim"
+    run_label = compute_run_label(args)
 
     save_dir = output_dir
     if not os.path.exists(save_dir):
@@ -192,6 +208,16 @@ def main(args, suite_type):
 
                 injection_task = suite.get_injection_task_by_id(injection_task_id)
                 task_injections = attack.attack(user_task, injection_task)
+                if args.repeated_instruction:
+                    paraphrases = get_paraphrases(injection_task.GOAL, suite_type, injection_task.ID, llm.client, n=args.repeat_n, logger=logger)
+                    # Wrap the whole repeated block with any active fixed-text attacks so the
+                    # wrapper covers [3 variants, goal, 3 variants] rather than just the central
+                    # goal. Nesting: close_tag outermost (structural escape out of the tool-result
+                    # block), align_claim inside. Their DRIFTTaskSuite steps stand down when
+                    # repeated_instruction is on.
+                    wrap_prefix = (CLOSE_TAG_PREFIX if args.close_tag else "") + (ALIGN_CLAIM_PREFIX if args.align_claim else "")
+                    wrap_suffix = (ALIGN_CLAIM_PROMPT if args.align_claim else "") + (CLOSE_TAG_SUFFIX if args.close_tag else "")
+                    task_injections = apply_repeated_instruction(task_injections, injection_task.GOAL, paraphrases, prefix=wrap_prefix or None, suffix=wrap_suffix or None)
 
                 llm.detected_injections = []
                 llm.alignment_decisions = []
@@ -203,7 +229,7 @@ def main(args, suite_type):
                 utility_result.append(utility)
                 security_result.append(security)
                 with open(result_file_path, "w") as f:
-                    json.dump({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": f"injection_task_{injection_task_idx}", "attack_type": f"{run_label}", "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "align_claim": args.align_claim, "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "detected_injections": llm.detected_injections, "final_trajectory": llm.function_trajectory, "final_checklist": llm.node_checklist, "alignment_decisions": llm.alignment_decisions, "isolation_events": llm.isolation_events, "events": llm.events, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, f, indent=4)
+                    json.dump({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": f"injection_task_{injection_task_idx}", "attack_type": f"{run_label}", "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "align_claim": args.align_claim, "close_tag": args.close_tag, "repeated_instruction": args.repeated_instruction, "repeat_n": (args.repeat_n if args.repeated_instruction else None), "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "detected_injections": llm.detected_injections, "final_trajectory": llm.function_trajectory, "final_checklist": llm.node_checklist, "alignment_decisions": llm.alignment_decisions, "isolation_events": llm.isolation_events, "events": llm.events, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, f, indent=4)
 
                 logger.info(f"user_task_{user_task_idx} with injection_task_{injection_task_idx} Utility Success Ratio: {utility_result.count(True) + resume_utility} / {len(utility_result) + resume_total}")
                 logger.info(f"user_task_{user_task_idx} with injection_task_{injection_task_idx} Attack Success Ratio: {security_result.count(True) + resume_security} / {len(security_result) + resume_total}")
@@ -258,13 +284,14 @@ def print_results(args):
     log_dir = "logs"
     model = get_model_dir(args)
     attack = args.attack_type if args.do_attack else None
+    run_label = compute_run_label(args)
 
     results = {}
     for suite in args.suites.split(","):
         if attack is None:
             pattern = f"{log_dir}/{model}/{suite}/user_task_*/none/none.json"
         else:
-            pattern = f"{log_dir}/{model}/{suite}/user_task_*/{attack}/injection_task_*.json"
+            pattern = f"{log_dir}/{model}/{suite}/user_task_*/{run_label}/injection_task_*.json"
 
         files = glob.glob(pattern)
         if not files:
@@ -282,7 +309,7 @@ def print_results(args):
             "security": sum(security_scores) / len(security_scores) if security_scores else "N/A",
         }
 
-    print(f"\nModel: {model}    Attack: {attack}")
+    print(f"\nModel: {model}    Attack: {run_label if attack else attack}")
     print(f"{'Suite':<12} {'Utility':>8} {'Security':>10}")
     print("-" * 32)
     for suite, scores in results.items():

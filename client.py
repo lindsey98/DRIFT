@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 from typing import Optional, Sequence
 
@@ -84,6 +85,44 @@ class OpenAIModel(_TokenTrackingClient):
         if self.logger:
             self.logger.info(f"Using {self.label} model {model}.")
 
+    def _create_fitted(self, messages, name):
+        """chat.completions.create with an output budget that fits the context window.
+        On a context-length 400 (input + requested output > max), shrink the output
+        budget to what's left and retry.
+
+        The server reports the input size as a LOWER BOUND ("prompt contains at least
+        N tokens") whose value can jitter by tens of tokens between calls, so a single
+        retry sized from one report can still overflow. Loop instead: each retry re-reads
+        the latest error's numbers and shrinks the budget by at least a fixed step,
+        guaranteeing progress until it fits (or the input alone leaves no useful room)."""
+        budget = self.max_tokens
+        margin = 256  # cushion for the server's under-reported / jittery input estimate
+        last_err = None
+        for _ in range(6):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model, messages=messages, max_completion_tokens=budget,
+                )
+                usage = response.usage
+                self._record_tokens(usage.completion_tokens, usage.prompt_tokens, usage.total_tokens, name)
+                return response
+            except openai.BadRequestError as e:
+                last_err = e
+                msg = str(getattr(e, "message", "") or e)
+                m_ctx = re.search(r"maximum context length is (\d+)", msg)
+                m_inp = re.search(r"prompt contains at least (\d+)", msg)
+                if not (m_ctx and m_inp):
+                    raise
+                fitted = int(m_ctx.group(1)) - int(m_inp.group(1)) - margin
+                fitted = min(fitted, budget - margin)  # force strict progress even if input under-reported
+                if fitted < 128:
+                    raise  # input alone is near/over the limit; can't fit any useful output
+                if self.logger:
+                    self.logger.info(f"[client] context near limit (input>={m_inp.group(1)}, "
+                                     f"ctx={m_ctx.group(1)}); retry max_completion_tokens {budget}->{fitted}")
+                budget = fitted
+        raise last_err
+
     def agent_run(self, messages, tools=[], query=None, initial_trajectory=None, achieved_trajectory=None, node_checklist=None, name="default"):
         """Run a multi-turn agent step. Mutates `messages` in place to OpenAI roles."""
         for message in messages:
@@ -92,28 +131,15 @@ class OpenAIModel(_TokenTrackingClient):
             elif message["role"] in _ROLE_MAP:
                 message["role"] = _ROLE_MAP[message["role"]]
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            max_completion_tokens=self.max_tokens,
-        )
-        usage = response.usage
-        self._record_tokens(usage.completion_tokens, usage.prompt_tokens, usage.total_tokens, name)
+        response = self._create_fitted(messages, name)
         return [response.choices[0].message.content]
 
     def llm_run(self, SystemPrompt, UserPrompt, name="default"):
         """Run a single-turn system/user prompt."""
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": SystemPrompt},
-                    {"role": "user", "content": UserPrompt},
-                ],
-                max_completion_tokens=self.max_tokens,
-            )
-            usage = response.usage
-            self._record_tokens(usage.completion_tokens, usage.prompt_tokens, usage.total_tokens, name)
+            response = self._create_fitted(
+                [{"role": "system", "content": SystemPrompt},
+                 {"role": "user", "content": UserPrompt}], name)
             return response.choices[0].message.content
         except Exception:
             return "FAILED GENERATION."

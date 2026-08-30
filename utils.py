@@ -40,6 +40,9 @@ def get_args(description='DRIFT'):
     parser.add_argument("--dynamic_validation", action='store_true', help="Whether to validate dynamically.")
     parser.add_argument("--adaptive_attack", action='store_true', help="Whether to implement adaptive attack.")
     parser.add_argument("--align_claim", action='store_true', help="Append a task-specific claim to the injection asserting it is aligned with / required by the user's actual task (targets the injection detector).")
+    parser.add_argument("--close_tag", action='store_true', help="Context-escape injection: prepend a closing tool-result tag (</tool_response>) plus a 'do this task first' prerequisite before the injected goal, so the payload renders outside the tool-data region of the model's chat template.")
+    parser.add_argument("--repeated_instruction", action='store_true', help="Repeated-instruction attack: paraphrase the injected goal N ways (via the target client, cached to disk) and inject all paraphrases plus the original together, so any phrasing the injection detector misses survives removal.")
+    parser.add_argument("--repeat_n", type=int, default=6, help="Number of paraphrases for --repeated_instruction; split evenly around the goal (default 6 -> 3 before, goal, 3 after).")
 
     # Environment
     parser.add_argument('--seed', type=int, default=98, help='Random Seed.')

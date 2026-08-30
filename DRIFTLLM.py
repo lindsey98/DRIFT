@@ -1,51 +1,35 @@
 from import_lib import *
 
 
-def _normalize_with_map(s):
-    """Collapse whitespace runs to a single space and YAML-doubled single quotes
-    ('') to one, returning (normalized, idx_map) where idx_map[i] is the original
-    index in `s` of normalized char i (idx_map has len+1 entries; the last is len(s)
-    as an end sentinel so a matched span's end offset can be mapped back)."""
-    out, idx_map, i, n = [], [], 0, len(s)
-    while i < n:
-        c = s[i]
-        if c.isspace():
-            start = i
-            while i < n and s[i].isspace():
-                i += 1
-            out.append(" ")
-            idx_map.append(start)
-            continue
-        if c == "'" and i + 1 < n and s[i + 1] == "'":  # YAML-escaped single quote
-            out.append("'")
-            idx_map.append(i)
-            i += 2
-            continue
-        out.append(c)
-        idx_map.append(i)
-        i += 1
-    idx_map.append(n)
-    return "".join(out), idx_map
-
-
 def _remove_detected(content, detected):
-    """Remove a detected injected instruction from `content`, tolerant of the
-    mismatch between the detector's normalized output and the raw (YAML-serialized,
-    line-folded, quote-escaped) tool result: normalize both, locate the instruction
-    in normalized space, then cut the mapped span from the ORIGINAL text. Returns
-    `content` unchanged if it cannot be located even after normalization."""
+    """Remove a detected injected instruction from `content` via a global regex sub,
+    tolerant of the mismatch between the detector's normalized output and the raw
+    (YAML-serialized, line-folded, quote-escaped) tool result.
+
+    The detected text is normalized (whitespace collapsed, YAML-doubled '' -> ') and
+    turned into a pattern where each whitespace gap matches any run of whitespace or
+    backslash (line folding / escaped newlines) and each single quote also matches
+    YAML's doubled '' escaping. `re.sub` with no count removes EVERY occurrence:
+    AgentDojo copies the same injection into every injection vector, so one tool
+    result (e.g. a list_files dump) can carry N identical copies while the detector
+    deduplicates them to a single string -- cutting only the first would leave N-1
+    copies in the agent's context. Returns `content` unchanged if nothing matches."""
     if not isinstance(detected, str) or not detected.strip():
         return str(content)
     content = str(content)
-    norm_c, idx_map = _normalize_with_map(content)
     norm_t = re.sub(r"\s+", " ", detected.replace("''", "'")).strip()
     if not norm_t:
         return content
-    pos = norm_c.find(norm_t)
-    if pos < 0:
-        return content  # cannot locate even after normalization -> leave unchanged
-    start, end = idx_map[pos], idx_map[pos + len(norm_t)]
-    return (content[:start] + " " + content[end:]).strip()
+    parts = []
+    for ch in norm_t:
+        if ch == " ":
+            parts.append(r"[\s\\]+")       # tolerate line folding / escaped newlines
+        elif ch == "'":
+            parts.append(r"''?")            # match YAML-doubled '' as well as '
+        else:
+            parts.append(re.escape(ch))
+    pattern = "".join(parts)
+    return re.sub(pattern, " ", content, flags=re.DOTALL).strip()
 
 
 class DRIFTLLM(PromptingLLM):
