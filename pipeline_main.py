@@ -139,7 +139,17 @@ def main(args, suite_type):
     tools_loop = DRIFTToolsExecutionLoop([ToolsExecutor(), llm])
     tools_pipeline = AgentPipeline([InitQuery(), llm, tools_loop])
 
-    suite = get_suite(benchmark_version, suite_type)
+    try:
+        suite = get_suite(benchmark_version, suite_type)
+    except KeyError:
+        available = ", ".join(sorted(get_suites(benchmark_version).keys())) or "(none)"
+        raise SystemExit(
+            f"Suite '{suite_type}' not found for benchmark {benchmark_version}. "
+            f"Available suites: {available}. "
+            "The shopping / github / dailylife suites are provided by AgentDyn, not the "
+            "PyPI agentdojo package -- install AgentDyn (see README > Installation) so its "
+            "`agentdojo` drop-in registers them."
+        )
     task_suite = DRIFTTaskSuite(
         args,
         suite.name,

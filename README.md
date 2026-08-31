@@ -14,7 +14,30 @@ Enabling all three = the **DRIFT defense**; enabling none = the **original model
 
 ```bash
 conda create -n drift python=3.11 && conda activate drift
+```
+
+Then install **one** benchmark backend. Both expose the same `agentdojo` package/CLI, so the DRIFT commands below are identical either way — AgentDyn just registers three extra suites.
+
+**AgentDojo** — 4 suites (`banking, slack, travel, workspace`):
+
+```bash
 pip install "agentdojo==0.1.35" -r requirements.txt
+```
+
+**AgentDyn** — the same 4 suites **plus** `shopping, github, dailylife`. AgentDyn is a drop-in `agentdojo` (same import name, same version `0.1.35`) published only on GitHub, so install it from source **first**; the subsequent `requirements.txt` then sees `agentdojo==0.1.35` already satisfied and leaves the source install in place:
+
+```bash
+git clone git@github.com:SaFo-Lab/AgentDyn.git
+pip install -e ./AgentDyn
+pip install -r requirements.txt
+```
+
+Verify which backend is active (the suite list tells you):
+
+```bash
+python -c "from agentdojo.task_suite.load_suites import get_suites; print(sorted(get_suites('v1.2')))"
+# AgentDojo -> ['banking', 'slack', 'travel', 'workspace']
+# AgentDyn  -> ['banking', 'dailylife', 'github', 'shopping', 'slack', 'travel', 'workspace']
 ```
 
 ## Models & API Keys
@@ -64,17 +87,9 @@ python pipeline_main.py \
   --suites banking,slack,travel,workspace
 ```
 
-**Suites** — AgentDojo: `banking,slack,travel,workspace`. AgentDyn (after installing it, below): `shopping,github,dailylife`. Same interface for both.
+**Suites** — AgentDojo: `banking,slack,travel,workspace`. AgentDyn adds `shopping,github,dailylife` (install AgentDyn per [Installation](#installation)). Same interface for both; pass any of them to `--suites`, e.g. `--suites shopping,github,dailylife`. Requesting an AgentDyn suite without AgentDyn installed exits with a message telling you to install it.
 
 **Other flags:** `--adaptive_attack`, `--attack_type <name>` (see `utils.py` for the full list), `--target_user_tasks 1,4,7`, `--target_injection_tasks 1,2,3`, `--force_rerun`.
-
-### AgentDyn
-
-Install the AgentDyn drop-in replacement, then use the same commands with the AgentDyn suites:
-
-```bash
-git clone git@github.com:SaFo-Lab/AgentDyn.git && cd AgentDyn && pip install -e .
-```
 
 ### ASB
 
