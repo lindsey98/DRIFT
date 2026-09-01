@@ -326,7 +326,6 @@ class ReactAgentAttack(BaseAgent):
 
                             else:
                                 LLM_judge_result, judge_reason = self.drift_agent.alignment_judge(query=self.task_input, initial_function_trajectory=self.drift_agent.initial_traj, current_function_trajectory=[*self.drift_agent.achieved_function_trajectory, tool_name], messages=self.messages)
-                                LLM_judge_result = False
 
                                 if LLM_judge_result:
                                     self.drift_agent.initial_traj.insert(pos, tool_name)
