@@ -91,6 +91,31 @@ python pipeline_main.py \
 
 **Other flags:** `--adaptive_attack`, `--attack_type <name>` (see `utils.py` for the full list), `--target_user_tasks 1,4,7`, `--target_injection_tasks 1,2,3`, `--force_rerun`.
 
+### ChatInject
+
+[ChatInject](https://github.com/hwanchang00/ChatInject) injects the **target model's own chat-template delimiters** into a tool result, closing the current turn and opening a fake system/user/assistant exchange — the role confusion is the exploit. Registered as `--attack_type <name>`:
+
+| `--attack_type` | Template | Payload |
+|---|---|---|
+| `chat_inject_qwen3` | Qwen3 | single fake system+user turn |
+| `chat_inject_glm` | GLM | single fake system+user turn |
+| `chat_inject_qwen3_with_utility_system_multiturn_7` | Qwen3 | 7-turn fake dialogue |
+| `chat_inject_glm_with_utility_system_multiturn_7` | GLM | 7-turn fake dialogue |
+| `chat_inject_qwen3_with_utility_authority_endorsement_system_multiturn_7` | Qwen3 | 7-turn dialogue, authority-endorsement persuasion |
+| `chat_inject_glm_with_utility_authority_endorsement_system_multiturn_7` | GLM | 7-turn dialogue, authority-endorsement persuasion |
+
+Pick the variant matching your `--model` (Qwen3 template vs GLM template) — the delimiters are model-specific, so a mismatched template silently no-ops. Example:
+
+```bash
+python pipeline_main.py \
+  --model Qwen3-30B-A3B-Instruct-2507 \
+  --do_attack --attack_type chat_inject_qwen3_with_utility_system_multiturn_7 \
+  --build_constraints --injection_isolation --dynamic_validation \
+  --suites banking,slack,travel
+```
+
+**Coverage:** the multi-turn variants load pre-generated dialogues from `chatinject_data/`, keyed by exact injection-GOAL string, and ChatInject only generated them for **banking / slack / travel**. An uncovered GOAL (e.g. any workspace/shopping/github/dailylife task, or a GOAL AgentDyn reworded) raises a clear `ValueError`. The single-turn `chat_inject_qwen3` / `chat_inject_glm` variants have no data dependency and work on any suite. Template delimiters are defined in `chatinject_attack.py:MODEL_CONFIGS` — verify them against your served model's `tokenizer_config` before trusting the numbers.
+
 ### ASB
 
 See [`ASB_DRIFT/README.md`](ASB_DRIFT/README.md).

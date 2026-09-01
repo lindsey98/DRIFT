@@ -8,6 +8,7 @@ from DRIFTLLM import DRIFTLLM
 from DRIFTTaskSuite import DRIFTTaskSuite
 from DRIFTToolsExecutionLoop import DRIFTToolsExecutionLoop
 from repeated_instruction import get_paraphrases, apply_repeated_instruction
+import chatinject_attack  # noqa: F401  # registers ChatInject attacks via @register_attack
 
 
 def compute_run_label(args):
