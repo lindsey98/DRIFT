@@ -172,19 +172,27 @@ def _to_agentdojo_messages(messages):
     return out
 
 
-def _run_label(args):
-    """Trace sub-directory: the defense, or the (attacked) baseline / clean (no-attack) run."""
+def _pipeline_name(args):
+    """AgentDojo-style pipeline dir: the model, plus the defense when one is used (e.g. 'Model+camel')."""
+    name = args.llm_name
     if args.defense_type:
-        return args.defense_type
-    suffix = "clean" if getattr(args, "clean", False) else "baseline"
-    return f"{args.workflow_mode}_{suffix}"
+        name += f"+{args.defense_type}"
+    return name
+
+
+def _variant(args):
+    """Run variant within a pipeline: <workflow_mode>_<clean|attacked> (keeps them from colliding)."""
+    return f"{args.workflow_mode}_{'clean' if getattr(args, 'clean', False) else 'attacked'}"
 
 
 def _task_json_path(args, agent_short, task_text, attacker_tool):
-    """Deterministic per-task trace path, shared by the resume-skip check and the JSON dump."""
-    label = _run_label(args)
+    """Deterministic per-task trace path, shared by the resume-skip check and the JSON dump.
+
+    Layout mirrors AgentDojo: logs/json/<model[+defense]>/<variant>/<agent>/<attacker>__<task>.json
+    so adding a defense yields a top dir like 'Qwen3.6-35B-A3B+camel'.
+    """
     base = os.path.dirname(args.res_file) or "logs"
-    out_dir = os.path.join(base, "json", _slug(args.llm_name), _slug(label), agent_short)
+    out_dir = os.path.join(base, "json", _pipeline_name(args), _variant(args), agent_short)
     fname = f"{_slug(attacker_tool)}__{_slug(task_text, 30)}.json"
     return out_dir, os.path.join(out_dir, fname)
 
@@ -198,7 +206,6 @@ def _dump_task_json(args, res, attacker_goal, attack_successful, original_succes
     """
     if not os.getenv("ASB_SAVE_JSON", "1"):
         return
-    label = args.defense_type or (f"{args.workflow_mode}_baseline")
     agent = res["agent_name"].split('/')[-1]
     task_text = next((m.get("content", "") for m in res["messages"] if m.get("role") == "user"), "")
     injections = {}
@@ -206,7 +213,7 @@ def _dump_task_json(args, res, attacker_goal, attack_successful, original_succes
         if t.get("injection"):
             injections[res["attacker_tool"]] = t["injection"]
             break
-    pipeline_name = args.llm_name + (f"+{args.defense_type}" if args.defense_type else "")
+    pipeline_name = _pipeline_name(args)
     payload = {
         # --- AgentDojo TaskResults schema ---
         "suite_name": agent,
@@ -227,6 +234,7 @@ def _dump_task_json(args, res, attacker_goal, attack_successful, original_succes
         "injection_method": "observation_prompt_injection",
         "workflow_mode": args.workflow_mode,
         "defense_type": args.defense_type,
+        "clean": bool(getattr(args, "clean", False)),
         "attack_success": bool(attack_successful),
         "refuse": refuse_res,
         "attacker_tool": res["attacker_tool"],

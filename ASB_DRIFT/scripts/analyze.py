@@ -24,7 +24,10 @@ from collections import defaultdict
 
 
 def _label(d):
-    return d.get("defense_type") or f"{d.get('workflow_mode', 'unknown')}_baseline"
+    if d.get("defense_type"):
+        return d["defense_type"]
+    kind = "clean" if d.get("clean") else "baseline"
+    return f"{d.get('workflow_mode', 'unknown')}_{kind}"
 
 
 def _case_key(d):
