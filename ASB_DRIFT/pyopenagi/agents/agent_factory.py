@@ -54,8 +54,12 @@ class AgentFactory:
         if not os.path.exists(os.path.join(script_dir, agent_name)):
             interactor.download_agent(agent_name)
 
-        if not interactor.check_reqs_installed(agent_name):
-            interactor.install_agent_reqs(agent_name)
+        # The vendored agents' deps are already installed. Running `conda list` per task (there can
+        # be thousands, all concurrent) is pure overhead and exhausts file descriptors
+        # ("[Errno 24] Too many open files"). Skip by default; set ASB_SKIP_REQS="" to restore it.
+        if not os.getenv("ASB_SKIP_REQS", "1"):
+            if not interactor.check_reqs_installed(agent_name):
+                interactor.install_agent_reqs(agent_name)
 
         agent_class = self.load_agent_instance(agent_name)
 

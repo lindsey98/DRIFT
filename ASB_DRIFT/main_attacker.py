@@ -173,28 +173,33 @@ def _to_agentdojo_messages(messages):
 
 
 def _pipeline_name(args):
-    """AgentDojo-style pipeline dir: the model, plus the defense when one is used (e.g. 'Model+camel')."""
-    name = args.llm_name
-    if args.defense_type:
-        name += f"+{args.defense_type}"
+    """Pipeline dir: '<model>+<defense>' with a defense, else '<model>_nodefense'. A non-default
+    workflow mode is appended so react/automatic runs don't collide."""
+    name = args.llm_name + (f"+{args.defense_type}" if args.defense_type else "_nodefense")
+    if getattr(args, "workflow_mode", "react") != "react":
+        name += f"-{args.workflow_mode}"
     return name
-
-
-def _variant(args):
-    """Run variant within a pipeline: <workflow_mode>_<clean|attacked> (keeps them from colliding)."""
-    return f"{args.workflow_mode}_{'clean' if getattr(args, 'clean', False) else 'attacked'}"
 
 
 def _task_json_path(args, agent_short, task_text, attacker_tool):
     """Deterministic per-task trace path, shared by the resume-skip check and the JSON dump.
 
-    Layout mirrors AgentDojo: logs/json/<model[+defense]>/<variant>/<agent>/<attacker>__<task>.json
-    so adding a defense yields a top dir like 'Qwen3.6-35B-A3B+camel'.
+    Nesting: <root>/<suite=agent>/<user_task>/<attack|none>/<injection_task|none>.json
+    A no-attack (clean) run lands at .../<user_task>/none/none.json.
+
+    <root> is --log_dir verbatim when given (run_opi.sh bakes '<model>_nodefense' / '<model>+<defense>'
+    into it, so no extra pipeline level is added). Without --log_dir it falls back to
+    <res_file dir>/json/<pipeline> so direct calls still keep baseline/defense runs apart.
     """
-    base = os.path.dirname(args.res_file) or "logs"
-    out_dir = os.path.join(base, "json", _pipeline_name(args), _variant(args), agent_short)
-    fname = f"{_slug(attacker_tool)}__{_slug(task_text, 30)}.json"
-    return out_dir, os.path.join(out_dir, fname)
+    attacked = bool(getattr(args, "observation_prompt_injection", False))
+    attack_name = args.attack_type if attacked else "none"
+    injection = _slug(attacker_tool) if attacked else "none"
+    if getattr(args, "log_dir", None):
+        root = args.log_dir
+    else:
+        root = os.path.join(os.path.dirname(args.res_file) or "logs", "json", _pipeline_name(args))
+    out_dir = os.path.join(root, agent_short, _slug(task_text, 40), _slug(attack_name))
+    return out_dir, os.path.join(out_dir, f"{injection}.json")
 
 
 def _dump_task_json(args, res, attacker_goal, attack_successful, original_successful, refuse_res):
@@ -220,7 +225,7 @@ def _dump_task_json(args, res, attacker_goal, attack_successful, original_succes
         "pipeline_name": pipeline_name,
         "user_task_id": _slug(task_text, 60),
         "injection_task_id": res["attacker_tool"] if args.observation_prompt_injection else None,
-        "attack_type": args.attack_type,
+        "attack_type": args.attack_type if args.observation_prompt_injection else None,
         "injections": injections,
         "messages": _to_agentdojo_messages(res["messages"]),
         "error": None,
@@ -294,7 +299,7 @@ def main():
         agent_log_mode=agent_log_mode,
     )
 
-    agent_thread_pool = ThreadPoolExecutor(max_workers=5000)
+    agent_thread_pool = ThreadPoolExecutor(max_workers=args.max_workers)
 
     scheduler.start()
 

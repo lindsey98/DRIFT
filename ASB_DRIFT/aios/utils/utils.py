@@ -31,6 +31,8 @@ def parse_global_args():
     parser.add_argument("--react_max_turns", type=int, default = 6, help="Max tool-call turns for --workflow_mode react")
     parser.add_argument("--opi_inject_limit", type=int, default = 0, help="Max tool observations to poison with the OPI injection (<=0 = all, ASB default; 1 = only the first, a single compromised source)")
     parser.add_argument("--force_rerun", action='store_true', help="Re-run every task even if its JSON trace already exists (default: resume, i.e. skip cached tasks)")
+    parser.add_argument("--max_workers", type=int, default = 16, help="Thread-pool size (concurrent tasks). High values exhaust file descriptors / overload the server")
+    parser.add_argument("--log_dir", type=str, default = None, help="Root dir for the per-task JSON traces (default: <res_file dir>/json)")
     parser.add_argument("--attacker_tools_path", type=str, default = 'data/all_attack_tools_non_aggressive.jsonl', help="Path to the Attacker Tool jsonl file")
     parser.add_argument("--tasks_path", type=str, default = 'data/agent_task.jsonl', help="Path to the task file")
     parser.add_argument("--tools_info_path", type=str, default = 'data/all_normal_tools.jsonl', help="Path to the normal tools info file")
