@@ -104,7 +104,8 @@ def judge_response(model_response):
     # user = f'''User Request: "{question}"\nModel Response: "{model_response}"'''
     user = f'''{model_response}'''
 
-    print(user)
+    if os.getenv("ASB_VERBOSE"):
+        print(user)
 
     try:
         completion = client.chat.completions.create(
@@ -171,6 +172,23 @@ def _to_agentdojo_messages(messages):
     return out
 
 
+def _run_label(args):
+    """Trace sub-directory: the defense, or the (attacked) baseline / clean (no-attack) run."""
+    if args.defense_type:
+        return args.defense_type
+    suffix = "clean" if getattr(args, "clean", False) else "baseline"
+    return f"{args.workflow_mode}_{suffix}"
+
+
+def _task_json_path(args, agent_short, task_text, attacker_tool):
+    """Deterministic per-task trace path, shared by the resume-skip check and the JSON dump."""
+    label = _run_label(args)
+    base = os.path.dirname(args.res_file) or "logs"
+    out_dir = os.path.join(base, "json", _slug(args.llm_name), _slug(label), agent_short)
+    fname = f"{_slug(attacker_tool)}__{_slug(task_text, 30)}.json"
+    return out_dir, os.path.join(out_dir, fname)
+
+
 def _dump_task_json(args, res, attacker_goal, attack_successful, original_successful, refuse_res):
     """Write one AgentDojo-format ``TaskResults`` JSON per task.
 
@@ -204,7 +222,7 @@ def _dump_task_json(args, res, attacker_goal, attack_successful, original_succes
         "agentdojo_package_version": None,
         "utility": bool(original_successful),
         "security": bool(attack_successful),   # AgentDojo convention: security_results == ASR
-        "duration": None,
+        "duration": res.get("duration"),
         # --- ASB extras (kept for convenience / disambiguation) ---
         "injection_method": "observation_prompt_injection",
         "workflow_mode": args.workflow_mode,
@@ -217,12 +235,10 @@ def _dump_task_json(args, res, attacker_goal, attack_successful, original_succes
         "task": task_text,
         "tool_trace": res.get("tool_trace"),
     }
-    base = os.path.dirname(args.res_file) or "logs"
-    out_dir = os.path.join(base, "json", _slug(args.llm_name), _slug(label), agent)
+    out_dir, path = _task_json_path(args, agent, task_text, res["attacker_tool"])
     os.makedirs(out_dir, exist_ok=True)
-    fname = f"{_slug(res['attacker_tool'])}__{_slug(task_text, 30)}.json"
     try:
-        with open(os.path.join(out_dir, fname), "w", encoding="utf-8") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, ensure_ascii=False, default=str)
     except Exception as e:
         print(f"[json log] failed to write {fname}: {e}")
@@ -275,6 +291,8 @@ def main():
     scheduler.start()
 
     agent_tasks = list()
+    cached_records = []  # results loaded from existing JSON traces (resume, unless --force_rerun)
+    verbose = bool(os.getenv("ASB_VERBOSE"))  # ASB_VERBOSE=1 restores the full per-task dumps
 
     attacker_tools_all = pd.read_json(args.attacker_tools_path, lines=True)
     tasks_path = pd.read_json(args.tasks_path, lines=True)
@@ -298,6 +316,9 @@ def main():
         agent_path = agent_info["agent_path"]
         tasks = agent_info["tasks"]
         attacker_tools = attacker_tools_all[attacker_tools_all["Corresponding Agent"] == agent_name]
+        if args.clean:
+            # No attack: the attacker tool is irrelevant, so run each task once (not once per tool).
+            attacker_tools = attacker_tools.head(1)
 
         for i, task in enumerate(tasks): # iterate over each task
             if i >= args.task_num:
@@ -305,7 +326,22 @@ def main():
             for _, tool in attacker_tools.iterrows(): # iterate over each attacker tool
                 if args.pot_backdoor or args.pot_clean:
                     args.target = tool["Attacker Tool"]
-                print(f'Running agent: {agent_name} with the task: {task} and the attacker tool: {tool["Attacker Tool"]}')
+
+                # Resume: skip a task whose JSON trace already exists (unless --force_rerun), and
+                # reuse its stored metrics so the aggregate stays complete.
+                _, jpath = _task_json_path(args, agent_name, task, tool["Attacker Tool"])
+                if (not args.force_rerun) and os.path.exists(jpath):
+                    try:
+                        with open(jpath, encoding="utf-8") as jf:
+                            cached_records.append(json.load(jf))
+                        if verbose:
+                            print(f"[resume] cached, skipping: {agent_name} / {tool['Attacker Tool']} / {str(task)[:40]}")
+                        continue
+                    except Exception as e:
+                        print(f"[resume] unreadable cache {jpath} ({e}); re-running")
+
+                if verbose:
+                    print(f'Running agent: {agent_name} with the task: {task} and the attacker tool: {tool["Attacker Tool"]}')
 
                 agent_attack = agent_thread_pool.submit(
                     agent_factory.run_agent,
@@ -342,37 +378,36 @@ def main():
         ])
 
 
-    for r in as_completed(agent_tasks):
+    total_new = len(agent_tasks)
+    pbar = tqdm(as_completed(agent_tasks), total=total_new, desc="ASB tasks", unit="task")
+    for done_i, r in enumerate(pbar, 1):
         res = r.result()
-        print("**********************************")
-        print(args)
+        if verbose:
+            print("**********************************")
+            print(args)
 
         attacker_goal = attacker_tools_all[attacker_tools_all["Attacker Tool"] == res["attacker_tool"]]['Attack goal'].iloc[0]
         attack_successful = check_attack_success(res["messages"], args, attacker_goal)
-
         if attack_successful:
-            print("Attack successful.")
             attack_succ += 1
-        else:
-            print("Attack failed.")
 
         original_successful = check_original_success(res["messages"], args, res["normal_tools"])
         if original_successful:
             orgin_succ += 1
-            print("Original task successful.")
-        else:
-            print("Original task failed.")
-
-        # workflow_failure_flag = res['workflow_failure']
-        # if workflow_failure_flag:
-        #     workflow_failure += 1
-        #     print("Workflow generation failed.")
-
-        for message in res["messages"]:
-            print(message)
 
         attack_tool = res["attacker_tool"]
-        print(f"Attack Tool: {attack_tool}")
+        agent_short = res["agent_name"].split('/')[-1]
+        # AgentDojo-style per-task line: which agent, which injection task, and the outcome.
+        tqdm.write(f"[{done_i}/{total_new}] {agent_short} / {attack_tool}  "
+                   f"ASR={1 if attack_successful else 0} util={1 if original_successful else 0}")
+        pbar.set_postfix(ASR=f"{attack_succ/done_i:.2f}", util=f"{orgin_succ/done_i:.2f}")
+
+        if verbose:
+            print("Attack successful." if attack_successful else "Attack failed.")
+            print("Original task successful." if original_successful else "Original task failed.")
+            for message in res["messages"]:
+                print(message)
+            print(f"Attack Tool: {attack_tool}")
 
         # The plan-then-execute layout put the task at messages[3]; ReAct puts it at messages[1].
         # Find it by role so neither mode (nor a short trajectory) crashes here.
@@ -403,14 +438,17 @@ def main():
         refuse_res = judge_response(str(final_texts[-1])) if final_texts else '1'
 
         if refuse_res == '0':
-            print("The model response doesn't comply with the user request.")
             refuse_cnt += 1
+            if verbose:
+                print("The model response doesn't comply with the user request.")
         elif refuse_res == '1':
-            print("The model response complies with the user request.")
+            if verbose:
+                print("The model response complies with the user request.")
         else:
             print(f"Refuse judge Error: {refuse_res}")
 
-        print("**********************************")
+        if verbose:
+            print("**********************************")
 
         # AgentDojo-style per-task JSON trace (full messages + metrics + metadata).
         _dump_task_json(args, res, attacker_goal, attack_successful, original_successful, refuse_res)
@@ -432,22 +470,42 @@ def main():
                 res["messages"]
             ])
 
+    # Fold in the resumed (cached) tasks so the aggregate covers every task, not just re-run ones.
+    for cj in cached_records:
+        a = bool(cj.get("attack_success")); u = bool(cj.get("utility")); rr = cj.get("refuse")
+        if a:
+            attack_succ += 1
+        if u:
+            orgin_succ += 1
+        if rr == '0':
+            refuse_cnt += 1
+        with open(args.res_file, mode='a', newline='') as file:
+            csv.writer(file).writerow([
+                cj.get("suite_name"), cj.get("attacker_tool"),
+                1 if a else 0, 1 if u else 0, 1 if rr == '0' else 0,
+                None, cj.get("aggressive"), "",
+            ])
+    if cached_records:
+        print(f"[resume] reused {len(cached_records)} cached task result(s); run with --force_rerun to recompute")
+
+    total = len(agent_tasks) + len(cached_records)
+    denom = total or 1
     # print(f"Results saved to {args.res_file}")
-    print(f"Total number of attacks: {len(agent_tasks)}")
+    print(f"Total number of attacks: {total}")
     print(f"Number of successful attacks: {attack_succ}")
     print(f'Number of workflow generation failures: {workflow_failure}')
     # print(f'Number of tool calling success: {tool_call_success}')
-    print(f"Attack success rate: {attack_succ/len(agent_tasks)}")
-    print(f"Attack success rate excluding workflow failure cases: {attack_succ/(len(agent_tasks)-workflow_failure)}")
+    print(f"Attack success rate: {attack_succ/denom}")
+    print(f"Attack success rate excluding workflow failure cases: {attack_succ/((total-workflow_failure) or 1)}")
     print(f'Number of original task success: {orgin_succ}')
-    print(f'Original task success rate: {orgin_succ/len(agent_tasks)}')
+    print(f'Original task success rate: {orgin_succ/denom}')
 
     print(f"Refuse judge success number: {refuse_cnt}")
-    print(f"Refuse judge success rate: {refuse_cnt/len(agent_tasks)}")
+    print(f"Refuse judge success rate: {refuse_cnt/denom}")
 
     if args.read_db:
         print(f"Memory search success number: {memory_search_succ}")
-        print(f"Memory search success rate: {memory_search_succ/len(agent_tasks)}")
+        print(f"Memory search success rate: {memory_search_succ/denom}")
 
 
     scheduler.stop()
