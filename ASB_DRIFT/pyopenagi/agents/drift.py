@@ -17,10 +17,11 @@ class DRIFT():
     def __init__(self, args, logger=None):
         self.args = args
         # DRIFT's own defense LLM (injection detection / alignment judge / privilege
-        # assignment) runs on the SAME local vLLM instance as the agent -- same served
-        # model (args.llm_name) reached via the same LOCAL_BASE_URL / LOCAL_API_KEY env
-        # vars local_llm.py uses (defaults http://localhost:8000/v1, "EMPTY").
-        self.model = args.llm_name
+        # assignment) runs on the SAME local vLLM instance and served model as the agent.
+        # Strip a "local:" prefix if present (the served model name has no prefix), and
+        # reach the endpoint via the same env vars -- LOCAL_BASE_URL (ASB's local_llm.py)
+        # or LOCAL_API_BASE (top-level DRIFT's LocalModel), defaulting to localhost:8000.
+        self.model = args.llm_name.split("local:", 1)[-1]
 
         self.tools = []
         self.tool_privilege = {}
@@ -28,8 +29,9 @@ class DRIFT():
         self.achieved_function_trajectory = []
         self.query = ""
         self.client = OpenAI(
-            base_url=os.getenv("LOCAL_BASE_URL", "http://localhost:8000/v1"),
-            api_key=os.getenv("LOCAL_API_KEY", "EMPTY"),
+            base_url=(os.getenv("LOCAL_BASE_URL") or os.getenv("LOCAL_API_BASE")
+                      or "http://localhost:8000/v1"),
+            api_key=(os.getenv("LOCAL_API_KEY") or "EMPTY"),
         )
         self.cycle_limit = 1
         self.logger = logger  # Assuming logger is set up elsewhere in the code
