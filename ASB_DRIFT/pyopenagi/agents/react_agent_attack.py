@@ -512,36 +512,50 @@ class ReactAgentAttack(BaseAgent):
             perm = self.drift_agent.tool_privilege.get(tool_name)
             args_str = json.dumps(tc.get("parameters") or {})
             pos = len(self.drift_agent.achieved_function_trajectory)
+
+            # --- trajectory gate: on-plan pass / off-plan Read auto-approve / else judge ---
+            reason = ""
             if (pos < len(self.drift_agent.initial_traj)) and (tool_name == self.drift_agent.initial_traj[pos]):
-                self.drift_agent.achieved_function_trajectory.append(tool_name)
-                self.drift_agent.events.append({
-                    "type": "trajectory_decision", "function": tool_name, "args": args_str,
-                    "permission": perm, "deviation": False, "outcome": "on_plan"})
-                keep.append(True)
-                continue
-            try:
-                LLM_judge_result, judge_reason = self.drift_agent.alignment_judge(
-                    query=self.task_input,
-                    initial_function_trajectory=self.drift_agent.initial_traj,
-                    current_function_trajectory=[*self.drift_agent.achieved_function_trajectory, tool_name],
-                    messages=self.messages)
-            except Exception as e:
-                self.logger.log(f"DRIFT alignment_judge error: {e}", level="error")
-                LLM_judge_result, judge_reason = False, f"alignment_judge error: {e}"
-            if LLM_judge_result:
+                traj_ok, deviation, outcome = True, False, "on_plan"
+            elif perm == "Read":
                 self.drift_agent.initial_traj.insert(pos, tool_name)
-                self.drift_agent.achieved_function_trajectory.append(tool_name)
-                self.drift_agent.events.append({
-                    "type": "trajectory_decision", "function": tool_name, "args": args_str,
-                    "permission": perm, "deviation": True, "outcome": "extend_aligned",
-                    "reason": judge_reason})
-                keep.append(True)
+                traj_ok, deviation, outcome = True, True, "extend_read_auto"
             else:
-                self.drift_agent.events.append({
-                    "type": "trajectory_decision", "function": tool_name, "args": args_str,
-                    "permission": perm, "deviation": True, "outcome": "reject_not_aligned",
-                    "reason": judge_reason})
+                try:
+                    res, reason = self.drift_agent.alignment_judge(
+                        query=self.task_input,
+                        initial_function_trajectory=self.drift_agent.initial_traj,
+                        current_function_trajectory=[*self.drift_agent.achieved_function_trajectory, tool_name],
+                        messages=self.messages)
+                except Exception as e:
+                    self.logger.log(f"DRIFT alignment_judge error: {e}", level="error")
+                    res, reason = False, f"alignment_judge error: {e}"
+                if res:
+                    self.drift_agent.initial_traj.insert(pos, tool_name)
+                    traj_ok, deviation, outcome = True, True, "extend_aligned"
+                else:
+                    traj_ok, deviation, outcome = False, True, "reject_not_aligned"
+
+            self.drift_agent.events.append({
+                "type": "trajectory_decision", "function": tool_name, "args": args_str,
+                "permission": perm, "deviation": deviation, "outcome": outcome, "reason": reason})
+            if not traj_ok:
                 keep.append(False)
+                continue
+
+            # --- checklist gate: validate the call's params against DRIFT's checklist ---
+            self.drift_agent.achieved_function_trajectory.append(tool_name)
+            json_call = [{"function": {"name": tool_name, "arguments": args_str}}]
+            node_ok, node_reason = self.drift_agent.node_check(self.drift_agent.node_checklist, json_call)
+            if not node_ok:
+                # undo the trajectory advance so a rejected call doesn't shift the plan position
+                self.drift_agent.achieved_function_trajectory.pop()
+                self.drift_agent.events.append({
+                    "type": "checklist_decision", "function": tool_name, "args": args_str,
+                    "outcome": "reject_checklist", "reason": node_reason})
+                keep.append(False)
+                continue
+            keep.append(True)
         return keep
 
     def run_react(self):
@@ -568,27 +582,19 @@ class ReactAgentAttack(BaseAgent):
         ]
         self.logger.log(f"{self.task_input}\n", level="info")
 
-        # DRIFT defense (trajectory constraint + injection isolation), gated by defense_type.
-        # ReAct builds no upfront plan, so seed DRIFT's trajectory layer from the agent's
-        # ground-truth workflow; each ReAct tool call is then validated against it.
+        # DRIFT defense (agentdojo paradigm), gated by defense_type: DRIFT builds its OWN
+        # plan (function trajectory + parameter checklist) from the user query, guides the
+        # agent with it (execution guidelines in the system prompt), and validates each tool
+        # call against the trajectory + checklist before executing + isolating observations.
         drift_on = getattr(self.args, "defense_type", None) == "drift"
         if drift_on:
             self.drift_agent = DRIFT(self.args, self.logger)
             self.drift_agent.query = self.task_input
             self.drift_agent.tools = self.tools
             self.drift_agent.get_all_tool_privilege(self.tools)
-            try:
-                wf = self.automatic_workflow() if self.workflow_mode == "automatic" else self.manual_workflow()
-                traj = []
-                for step in (wf or []):
-                    traj.extend(step.get("tool_use", []) or [])
-                self.drift_agent.initial_traj = traj
-            except Exception as e:
-                self.logger.log(f"Error initializing DRIFT trajectory: {e}", level="error")
-                self.drift_agent.initial_traj = []
-            # Snapshot the seeded plan before the live loop edits initial_traj (alignment
-            # judge inserts aligned deviations), so the audit keeps the original plan.
-            self.drift_agent.seeded_traj = list(self.drift_agent.initial_traj)
+            self.drift_agent.build_constraints(self.task_input, self.tools)
+            # Prepend DRIFT's plan to the agent's system prompt so it follows the plan.
+            self.messages[0]["content"] += "\n\n" + self.drift_agent.execution_guidelines()
 
         max_turns = int(getattr(self.args, "react_max_turns", 6) or 6)
         final_result = "No final answer produced."
@@ -687,6 +693,8 @@ class ReactAgentAttack(BaseAgent):
                 "tool_permission": self.drift_agent.tool_privilege,
                 "initial_trajectory": self.drift_agent.seeded_traj,
                 "final_trajectory": self.drift_agent.achieved_function_trajectory,
+                "initial_checklist": self.drift_agent.initial_node_checklist,
+                "final_checklist": self.drift_agent.node_checklist,
                 "detected_injections": self.drift_agent.detected_injections,
                 "alignment_decisions": self.drift_agent.alignment_decisions,
                 "isolation_events": self.drift_agent.isolation_events,
