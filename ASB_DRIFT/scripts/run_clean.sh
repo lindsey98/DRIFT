@@ -43,9 +43,9 @@ export PYTHONPATH="$(pwd):${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
 if [ -n "$DEFENSE" ]; then _PIPE="${MODEL}+${DEFENSE}"; else _PIPE="${MODEL}_nodefense"; fi
 LOG_DIR="${LOG_DIR:-logs/$_PIPE}"
 
-LABEL="clean"; [ -n "$DEFENSE" ] && LABEL="clean_${DEFENSE}"
-mkdir -p logs
-RES="logs/${MODEL}_${LABEL}.csv"
+# Keep the CSV summary alongside the JSON traces (under the same pipeline dir).
+mkdir -p "$LOG_DIR"
+RES="${LOG_DIR}/clean_results.csv"
 
 DEFENSE_ARG=()
 [ -n "$DEFENSE" ] && DEFENSE_ARG=(--defense_type "$DEFENSE")

@@ -51,8 +51,9 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 export PYTHONPATH="$(pwd):${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}"
 
 LABEL="${DEFENSE:-baseline}"
-mkdir -p logs/observation_prompt_injection
-RES="logs/observation_prompt_injection/${MODEL}_${ATTACK_TYPE}_${LABEL}.csv"
+# Keep the CSV summary alongside the JSON traces (under the same pipeline dir).
+mkdir -p "$LOG_DIR"
+RES="${LOG_DIR}/${ATTACK_TYPE}_results.csv"
 
 DEFENSE_ARG=()
 [ -n "$DEFENSE" ] && DEFENSE_ARG=(--defense_type "$DEFENSE")
