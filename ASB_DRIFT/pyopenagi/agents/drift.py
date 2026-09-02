@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import ast
 from openai import OpenAI
@@ -15,14 +16,21 @@ INJECTION_DETECTION_PROMPT = """
 class DRIFT():
     def __init__(self, args, logger=None):
         self.args = args
-        self.model = args.llm_name
+        # DRIFT's own defense LLM (injection detection / alignment judge / privilege
+        # assignment) runs on ModelArts (Huawei MaaS), independent of the agent model.
+        # DRIFT_MODEL names the ModelArts model (the agent's llm_name usually is not served
+        # there, e.g. a local Qwen); DRIFT_BASE_URL / MAAS_API_KEY override endpoint / key.
+        self.model = os.getenv("DRIFT_MODEL", args.llm_name)
 
         self.tools = []
         self.tool_privilege = {}
         self.initial_traj = []  # Store the initial trajectory for each step in the workflow
         self.achieved_function_trajectory = []
         self.query = ""
-        self.client = OpenAI()
+        self.client = OpenAI(
+            base_url=os.getenv("DRIFT_BASE_URL", "https://api.modelarts-maas.com/openai/v1"),
+            api_key=os.getenv("DRIFT_API_KEY") or os.getenv("MAAS_API_KEY"),
+        )
         self.cycle_limit = 1
         self.logger = logger  # Assuming logger is set up elsewhere in the code
 

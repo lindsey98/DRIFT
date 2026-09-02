@@ -119,7 +119,18 @@ class LocalLLM(BaseLLM):
             # (Qwen3 chat template honours chat_template_kwargs.enable_thinking=false).
             if os.getenv("LOCAL_DISABLE_THINKING"):
                 kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
-            response = self.model.chat.completions.create(**kwargs)
+            try:
+                response = self.model.chat.completions.create(**kwargs)
+            except (TypeError, openai.BadRequestError) as e:
+                # Older openai SDKs don't accept `parallel_tool_calls` in create() (TypeError),
+                # and some vLLM/SGLang builds reject it with a 400 (BadRequestError). Drop the
+                # param and retry rather than failing the whole task.
+                msg = str(getattr(e, "message", "") or e)
+                if "parallel_tool_calls" in kwargs and "parallel_tool_calls" in msg:
+                    kwargs.pop("parallel_tool_calls", None)
+                    response = self.model.chat.completions.create(**kwargs)
+                else:
+                    raise
             response_message = response.choices[0].message.content
             tool_calls = self.parse_tool_calls(
                 response.choices[0].message.tool_calls
