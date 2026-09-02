@@ -36,6 +36,14 @@ class DRIFT():
         self.cycle_limit = 1
         self.logger = logger  # Assuming logger is set up elsewhere in the code
 
+        # Audit trails (mirrors the agentdojo DRIFT logging): record the dynamic
+        # decisions so a run can be reconstructed from the per-task JSON alone.
+        self.seeded_traj = []          # the initial ground-truth trajectory before any live edits
+        self.detected_injections = []  # instructions the isolator flagged
+        self.alignment_decisions = []  # each off-plan alignment-judge verdict + reason
+        self.isolation_events = []     # each injection_isolate pass (detected / lengths / success)
+        self.events = []               # structured per-tool-call trajectory decisions
+
 
     def get_all_tool_privilege(self, tools=None):
         for tool in tools:
@@ -134,19 +142,31 @@ class DRIFT():
             answer = response.choices[0].message.content
         except Exception as e:
             self.logger.log(f"Error during alignment judgement: {e}", level="error")
+            self.alignment_decisions.append({
+                "initial_trajectory": list(initial_function_trajectory),
+                "current_trajectory": list(current_function_trajectory),
+                "verdict": "Error", "reason": f"Error during alignment judgement: {e}",
+            })
             return False, "Error during alignment judgement"
 
         if ("Yes" in answer) or ("YES" in answer):
-            return True, answer
-
+            verdict, result = "Yes", True
         else:
             self.logger.log(f"Trajectory Alignment Failed: {answer}", level="info")
-            return False, answer
+            verdict, result = "No", False
+        self.alignment_decisions.append({
+            "initial_trajectory": list(initial_function_trajectory),
+            "current_trajectory": list(current_function_trajectory),
+            "verdict": verdict, "reason": answer,
+        })
+        return result, answer
 
     def injection_isolate(self, query, tool_call, observations, messages):
         cycle_times = 0
         system = INJECTION_DETECTION_PROMPT
         conversations = [msg for msg in messages if msg["role"] != "system"]
+        before_len = sum(len(str(o)) for o in observations)
+        detected_all = []
         while cycle_times < self.cycle_limit:
             try:
                 cycle_times += 1
@@ -202,8 +222,18 @@ class DRIFT():
                     except:
                         replace_list = []
 
+                    detected_all.extend(replace_list)
                     # cycling mask
                     for item in replace_list:
                         observations[idx] = remove_sentence(observations[idx], item)
 
+        after_len = sum(len(str(o)) for o in observations)
+        if detected_all:
+            self.detected_injections.extend(detected_all)
+            self.isolation_events.append({
+                "detected": list(detected_all),
+                "before_len": before_len,
+                "after_len": after_len,
+                "success": after_len != before_len,
+            })
         return observations

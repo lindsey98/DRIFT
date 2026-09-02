@@ -509,25 +509,38 @@ class ReactAgentAttack(BaseAgent):
         keep = []
         for tc in tool_calls:
             tool_name = tc.get("name")
+            perm = self.drift_agent.tool_privilege.get(tool_name)
+            args_str = json.dumps(tc.get("parameters") or {})
             pos = len(self.drift_agent.achieved_function_trajectory)
             if (pos < len(self.drift_agent.initial_traj)) and (tool_name == self.drift_agent.initial_traj[pos]):
                 self.drift_agent.achieved_function_trajectory.append(tool_name)
+                self.drift_agent.events.append({
+                    "type": "trajectory_decision", "function": tool_name, "args": args_str,
+                    "permission": perm, "deviation": False, "outcome": "on_plan"})
                 keep.append(True)
                 continue
             try:
-                LLM_judge_result, _ = self.drift_agent.alignment_judge(
+                LLM_judge_result, judge_reason = self.drift_agent.alignment_judge(
                     query=self.task_input,
                     initial_function_trajectory=self.drift_agent.initial_traj,
                     current_function_trajectory=[*self.drift_agent.achieved_function_trajectory, tool_name],
                     messages=self.messages)
             except Exception as e:
                 self.logger.log(f"DRIFT alignment_judge error: {e}", level="error")
-                LLM_judge_result = False
+                LLM_judge_result, judge_reason = False, f"alignment_judge error: {e}"
             if LLM_judge_result:
                 self.drift_agent.initial_traj.insert(pos, tool_name)
                 self.drift_agent.achieved_function_trajectory.append(tool_name)
+                self.drift_agent.events.append({
+                    "type": "trajectory_decision", "function": tool_name, "args": args_str,
+                    "permission": perm, "deviation": True, "outcome": "extend_aligned",
+                    "reason": judge_reason})
                 keep.append(True)
             else:
+                self.drift_agent.events.append({
+                    "type": "trajectory_decision", "function": tool_name, "args": args_str,
+                    "permission": perm, "deviation": True, "outcome": "reject_not_aligned",
+                    "reason": judge_reason})
                 keep.append(False)
         return keep
 
@@ -573,6 +586,9 @@ class ReactAgentAttack(BaseAgent):
             except Exception as e:
                 self.logger.log(f"Error initializing DRIFT trajectory: {e}", level="error")
                 self.drift_agent.initial_traj = []
+            # Snapshot the seeded plan before the live loop edits initial_traj (alignment
+            # judge inserts aligned deviations), so the audit keeps the original plan.
+            self.drift_agent.seeded_traj = list(self.drift_agent.initial_traj)
 
         max_turns = int(getattr(self.args, "react_max_turns", 6) or 6)
         final_result = "No final answer produced."
@@ -665,6 +681,17 @@ class ReactAgentAttack(BaseAgent):
             "agg": self.agg,
             "tool_trace": self.tool_trace,
             "duration": time.time() - self._t0,
+            # DRIFT component audit (mirrors the agentdojo DRIFT logging); None when the
+            # DRIFT defense is not active for this run.
+            "drift": ({
+                "tool_permission": self.drift_agent.tool_privilege,
+                "initial_trajectory": self.drift_agent.seeded_traj,
+                "final_trajectory": self.drift_agent.achieved_function_trajectory,
+                "detected_injections": self.drift_agent.detected_injections,
+                "alignment_decisions": self.drift_agent.alignment_decisions,
+                "isolation_events": self.drift_agent.isolation_events,
+                "events": self.drift_agent.events,
+            } if drift_on else None),
         }
 
     def load_agent_json(self):

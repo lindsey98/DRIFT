@@ -247,6 +247,9 @@ def _dump_task_json(args, res, attacker_goal, attack_successful, original_succes
         "aggressive": res.get("agg"),
         "task": task_text,
         "tool_trace": res.get("tool_trace"),
+        # DRIFT component audit (trajectory / alignment / isolation decisions), when the
+        # DRIFT defense ran; None/absent otherwise.
+        "drift": res.get("drift"),
     }
     out_dir, path = _task_json_path(args, agent, task_text, res["attacker_tool"])
     os.makedirs(out_dir, exist_ok=True)
