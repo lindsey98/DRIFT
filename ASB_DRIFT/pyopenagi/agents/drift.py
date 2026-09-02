@@ -17,10 +17,10 @@ class DRIFT():
     def __init__(self, args, logger=None):
         self.args = args
         # DRIFT's own defense LLM (injection detection / alignment judge / privilege
-        # assignment) runs on ModelArts (Huawei MaaS), independent of the agent model.
-        # DRIFT_MODEL names the ModelArts model (the agent's llm_name usually is not served
-        # there, e.g. a local Qwen); DRIFT_BASE_URL / MAAS_API_KEY override endpoint / key.
-        self.model = os.getenv("DRIFT_MODEL", args.llm_name)
+        # assignment) runs on the SAME local vLLM instance as the agent -- same served
+        # model (args.llm_name) reached via the same LOCAL_BASE_URL / LOCAL_API_KEY env
+        # vars local_llm.py uses (defaults http://localhost:8000/v1, "EMPTY").
+        self.model = args.llm_name
 
         self.tools = []
         self.tool_privilege = {}
@@ -28,8 +28,8 @@ class DRIFT():
         self.achieved_function_trajectory = []
         self.query = ""
         self.client = OpenAI(
-            base_url=os.getenv("DRIFT_BASE_URL", "https://api.modelarts-maas.com/openai/v1"),
-            api_key=os.getenv("DRIFT_API_KEY") or os.getenv("MAAS_API_KEY"),
+            base_url=os.getenv("LOCAL_BASE_URL", "http://localhost:8000/v1"),
+            api_key=os.getenv("LOCAL_API_KEY", "EMPTY"),
         )
         self.cycle_limit = 1
         self.logger = logger  # Assuming logger is set up elsewhere in the code
