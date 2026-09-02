@@ -3,11 +3,10 @@
 # All abstractions will be implemented here
 
 from .llm_classes.model_registry import MODEL_REGISTRY
-from .llm_classes.hf_native_llm import HfNativeLLM
 
-# standard implementation of LLM methods
-from .llm_classes.ollama_llm import OllamaLLM
-from .llm_classes.vllm import vLLM
+# Heavy backends (HfNativeLLM -> torch/transformers, OllamaLLM -> ollama, vLLM) are imported
+# lazily inside __init__ so that importing LLMKernel for the OpenAI-compatible / local path does
+# not require those packages to be installed.
 
 class LLMKernel:
     def __init__(self,
@@ -27,7 +26,19 @@ class LLMKernel:
             )
         # For locally-deployed LLM
         else:
-            if use_backend == "ollama" or llm_name.startswith("ollama"):
+            if use_backend in ("local", "openai_compatible"):
+                # OpenAI-compatible endpoint (e.g. vLLM served with --served-model-name),
+                # reached via LOCAL_BASE_URL / LOCAL_API_KEY. No torch/transformers needed.
+                from .llm_classes.local_llm import LocalLLM
+                self.model = LocalLLM(
+                    llm_name=llm_name,
+                    max_gpu_memory=max_gpu_memory,
+                    eval_device=eval_device,
+                    max_new_tokens=max_new_tokens,
+                    log_mode=log_mode
+                )
+            elif use_backend == "ollama" or llm_name.startswith("ollama"):
+                from .llm_classes.ollama_llm import OllamaLLM
                 self.model = OllamaLLM(
                     llm_name=llm_name,
                     max_gpu_memory=max_gpu_memory,
@@ -37,6 +48,7 @@ class LLMKernel:
                 )
 
             elif use_backend == "vllm":
+                from .llm_classes.vllm import vLLM
                 self.model = vLLM(
                     llm_name=llm_name,
                     max_gpu_memory=max_gpu_memory,
@@ -45,6 +57,7 @@ class LLMKernel:
                     log_mode=log_mode
                 )
             else: # use huggingface LLM without backend
+                from .llm_classes.hf_native_llm import HfNativeLLM
                 self.model = HfNativeLLM(
                     llm_name=llm_name,
                     max_gpu_memory=max_gpu_memory,

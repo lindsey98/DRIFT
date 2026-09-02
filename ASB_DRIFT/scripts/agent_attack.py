@@ -28,6 +28,11 @@ if __name__ == '__main__':
                 elif llm.startswith('ollama'):
                     llm_name = llm.split('/')[-1]
                     backend='ollama'
+                else:
+                    # Locally-served model (e.g. vLLM OpenAI-compatible endpoint). The name is the
+                    # vLLM --served-model-name; routed to the LocalLLM backend via LOCAL_BASE_URL.
+                    llm_name = llm
+                    backend='local'
 
                 log_path = f'logs/{injection_method}/{llm_name}'
                 database = f'memory_db/direct_prompt_injection/{attack_type}_gpt-4o-mini'

@@ -4,7 +4,6 @@ from .base_agent import BaseAgent
 import time
 
 from ..utils.chat_template import Query
-from .drift import DRIFT
 
 import json
 
@@ -122,15 +121,9 @@ class ReactAgent(BaseAgent):
         返回agent的性能摘要，包括最终结果、轮次和时间信息。
     """
     def run(self):
-        self.drift_agent = DRIFT(self.args, self.logger)
-
         self.build_system_instruction() # 构建系统指令并设置总任务。
 
         task_input = self.task_input
-
-        self.drift_agent.query = self.task_input
-        self.drift_agent.tools = self.tools
-        self.drift_agent.get_all_tool_privilege(self.tools)
 
         self.messages.append(
             {"role": "user", "content": task_input}
@@ -144,15 +137,6 @@ class ReactAgent(BaseAgent):
         else:
             assert self.workflow_mode == "manual"
             workflow = self.manual_workflow()
-
-        if workflow:
-            try:
-                for i, step in enumerate(workflow):
-                    self.drift_agent.initial_traj.append(step.get("tool_use", []))
-                self.drift_agent.initial_traj = [*sum(self.drift_agent.initial_traj, [])]
-            except Exception as e:
-                self.logger.log(f"Error while initializing trajectory: {e}", level="error")
-                self.drift_agent.initial_traj = []
 
         self.messages.append(
             {"role": "assistant", "content": f"[Thinking]: The workflow generated for the problem is {json.dumps(workflow)}"}
@@ -197,45 +181,11 @@ class ReactAgent(BaseAgent):
                 self.request_waiting_times.extend(waiting_times)
                 self.request_turnaround_times.extend(turnaround_times)
 
-                # validate constraints
-                try:
-                    passed_tool_calls = []
-                    if tool_calls:
-                        for tool_call in tool_calls:
-                            tool_name = tool_call["name"]
-                            pos = len(self.drift_agent.achieved_function_trajectory)
-                            if (pos < len(self.drift_agent.initial_traj)) and (tool_name == self.drift_agent.initial_traj[pos]):
-                                self.drift_agent.achieved_function_trajectory.append(tool_name)
-                                passed_tool_calls.append(tool_call)
-
-                            elif (tool_name in self.drift_agent.tool_privilege) and self.drift_agent.tool_privilege[tool_name] == "Read":
-                                    self.drift_agent.initial_traj.insert(pos, tool_name)
-                                    self.drift_agent.achieved_function_trajectory.append(tool_name)
-                                    passed_tool_calls.append(tool_call)
-
-                            else:
-                                LLM_judge_result, judge_reason = self.drift_agent.alignment_judge(query=self.task_input, initial_function_trajectory=self.drift_agent.initial_traj, current_function_trajectory=[*self.drift_agent.achieved_function_trajectory, tool_name], messages=self.messages)
-
-                                if LLM_judge_result:
-                                    self.drift_agent.initial_traj.insert(pos, tool_name)
-                                    self.drift_agent.achieved_function_trajectory.append(tool_name)
-                                    passed_tool_calls.append(tool_call)
-                except Exception as e:
-                    self.logger.log(f"Error during tool call validation: {e}", level="error")
-                    passed_tool_calls = None     
-
-                if passed_tool_calls:
+                if tool_calls:
                     for _ in range(self.plan_max_fail_times):
                         actions, observations, success = self.call_tools(tool_calls=tool_calls) # observation是调用工具以后观察到的东西
 
                         action_messages = "[Action]: " + ";".join(actions) # "I will call the tool_name with the params as function_params"
-
-                        # isolate injection instruction
-                        try:
-                            observations = self.drift_agent.injection_isolate(query=self.task_input, tool_call=action_messages, observations=observations, messages=self.messages)
-                        except Exception as e:
-                            self.logger.log(f"Error during injection isolation: {e}", level="error")
-                            
                         observation_messages = "[Observation]: " + ";".join(observations) # "The knowledge I get from tool_name is: function_response" or "The tool parameter function_params is invalid."
 
                         self.messages.append(

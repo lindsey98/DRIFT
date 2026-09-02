@@ -39,8 +39,7 @@ class SchedulerLogger(BaseLogger):
         self.level_color = {
             "execute": "green",
             "suspend": "yellow",
-            "info": "white",
-            "error": "white"
+            "info": "white"
         }
 
     def load_log_file(self):
@@ -57,7 +56,6 @@ class AgentLogger(BaseLogger):
         super().__init__(logger_name, log_mode)
         self.level_color = {
             "info": (248, 246, 227), # white
-            "error": (248, 246, 227),
             "executing": (217, 237, 191), # green
             "suspending": (255, 235, 178), # yellow
             "done": (122, 162, 227) # blue
@@ -77,7 +75,6 @@ class LLMKernelLogger(BaseLogger):
         super().__init__(logger_name, log_mode)
         self.level_color = {
             "info": (246, 245, 242),
-            "error": (246, 245, 242),
             "executing": (65, 176, 110), # green
             "suspending": (255, 201, 74), # yellow
             "done": (122, 162, 227) # blue

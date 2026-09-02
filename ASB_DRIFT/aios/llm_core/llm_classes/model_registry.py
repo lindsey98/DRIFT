@@ -1,26 +1,38 @@
-# registering all proprietary llm models in a constant
+# registering all proprietary llm models in a constant.
+# Each backend is imported defensively so that a missing optional SDK (google-generativeai,
+# boto3, anthropic) does not break importing the registry for the OpenAI-compatible / local path.
 
-from .gpt_llm import GPTLLM
-from .gemini_llm import GeminiLLM
-from .bed_rock import BedrockLLM
-from .claude_llm import ClaudeLLM
+MODEL_REGISTRY = {}
 
-#used for closed LLM model registry
-MODEL_REGISTRY = {
-    # Gemini-1.5
-    "gemini-1.5-flash": GeminiLLM,
-    "gemini-1.5-pro": GeminiLLM,
+try:
+    from .gpt_llm import GPTLLM
+    MODEL_REGISTRY.update({
+        'gpt-3.5-turbo': GPTLLM,
+        'gpt-4-turbo': GPTLLM,
+        'gpt-4o': GPTLLM,
+        'gpt-4o-2024-08-06': GPTLLM,
+        'gpt-4o-mini': GPTLLM,
+    })
+except ImportError:
+    pass
 
-    # GPT3.5
-    'gpt-3.5-turbo': GPTLLM,
-    'gpt-4-turbo': GPTLLM,
+try:
+    from .gemini_llm import GeminiLLM
+    MODEL_REGISTRY.update({
+        "gemini-1.5-flash": GeminiLLM,
+        "gemini-1.5-pro": GeminiLLM,
+    })
+except ImportError:
+    pass
 
-    # GPT4o
-    'gpt-4o': GPTLLM,
-    'gpt-4o-2024-08-06': GPTLLM,
-    'gpt-4o-mini': GPTLLM,
+try:
+    from .claude_llm import ClaudeLLM
+    MODEL_REGISTRY['claude-3-5-sonnet-20240620'] = ClaudeLLM
+except ImportError:
+    pass
 
-    # claude
-    'claude-3-5-sonnet-20240620': ClaudeLLM,
-    'bedrock/anthropic.claude-3-haiku-20240307-v1:0': BedrockLLM
-}
+try:
+    from .bed_rock import BedrockLLM
+    MODEL_REGISTRY['bedrock/anthropic.claude-3-haiku-20240307-v1:0'] = BedrockLLM
+except ImportError:
+    pass

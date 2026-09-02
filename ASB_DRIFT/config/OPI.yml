@@ -5,19 +5,11 @@ attack_tool:
   # - non-agg
 
 llms:
-  - gpt-4o-mini
-  # - gpt-3.5-turbo
+  # Locally-served model via vLLM (OpenAI-compatible). Must match the vLLM --served-model-name.
+  # Reached through LOCAL_BASE_URL / LOCAL_API_KEY (defaults http://localhost:8000/v1, "EMPTY").
+  - Qwen3-30B-A3B-Instruct-2507
+  # - gpt-4o-mini
   # - gpt-4o-2024-08-06
-  # - claude-3-5-sonnet-20240620
-  # - ollama/qwen2:72b
-  # - ollama/qwen2:7b
-  # - ollama/gemma2:9b
-  # - ollama/gemma2:27b
-  # - ollama/llama3:70b
-  # - ollama/llama3.1:70b
-  # - ollama/mixtral:8x7b
-  # - ollama/llama3:8b
-  # - ollama/llama3.1:8b
 
 attack_types:
   # - combined_attack
@@ -26,5 +18,12 @@ attack_types:
   # - escape_characters
   # - naive
 
-# defense_type: ob_sandwich_defense # delimiters_defense, ob_sandwich_defense, instructional_prevention
+# CaMeL defense: code-gen + interpreter over the ASB tools; injected observation text is treated
+# as untrusted data and the attacker tool is denied by the ASB security policy. Comment this line
+# out to run the undefended baseline (to confirm ASR > 0 first).
+defense_type: camel
+# DRIFT defense (requires workflow_mode: react): trajectory constraint (alignment judge over
+# the agent's ground-truth workflow) + injection isolation on observations. Swap the line above for:
+# defense_type: drift
+# Other ASB OPI defenses: delimiters_defense, ob_sandwich_defense, instructional_prevention
 # suffix: test

@@ -9,7 +9,8 @@ from ...utils.utils import get_from_env
 from transformers import AutoTokenizer
 
 from huggingface_hub import login
-#login(token="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")
+# If you need to authenticate to the HF Hub for a gated model, set the HF_TOKEN env var
+# (e.g. `login(token=os.environ["HF_TOKEN"])`). Never hardcode a token here.
 
 
 class vLLM(BaseLLM):

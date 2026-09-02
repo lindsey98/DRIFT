@@ -1,0 +1,19 @@
+# Minimal dependencies to run the ASB Observation Prompt Injection (OPI) slice against a locally
+# served (OpenAI-compatible / vLLM) model, with the CaMeL defense.
+#
+# Install on top of the CaMeL repo env (which already provides openai, pydantic-ai, agentdojo, etc.):
+#     pip install -r asb/requirements-opi.txt
+#
+# NOTE: unlike upstream ASB's requirements.txt, this does NOT pin openai==1.20.0 (the CaMeL repo
+# needs openai>=1.78.1; the Chat Completions API used here is stable across those versions), and it
+# omits torch/transformers/langchain/chromadb — those are only needed for HF-native local backends
+# and the memory-poisoning vector DB, neither of which the OPI slice uses.
+
+pandas>=2.0
+tqdm
+pyyaml
+python-dotenv
+jsonlines
+pympler
+# openai is already required by the CaMeL repo (>=1.78.1); listed here for standalone installs.
+openai>=1.78.1
