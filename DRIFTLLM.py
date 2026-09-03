@@ -1,4 +1,5 @@
 from import_lib import *
+import uuid
 
 
 def _remove_detected(content, detected):
@@ -128,6 +129,12 @@ class DRIFTLLM(PromptingLLM):
             tool_calls = parse_tool_calls_from_python_function(fix_function_calls(tool_call_content))
         except IndexError as e:
             raise InvalidModelOutputError(f"Empty AST body: {e}")
+        except Exception:
+            # Fallback: some models (e.g. Qwen) emit JSON tool calls inside <function_call>
+            # instead of the python-call syntax, which the AST parser rejects. Try JSON.
+            tool_calls = self._json_to_tool_calls(tool_call_content)
+            if not tool_calls:
+                raise
         
         for tool_call in tool_calls:
             args = {
@@ -146,6 +153,41 @@ class DRIFTLLM(PromptingLLM):
 
         return_answer = f"<function_thought>{thought_content}</function_thought>\n\n<function_call>{tool_call_content}</function_call>\n\n<final_answer>{output_content}</final_answer>"
         return {"role": "assistant", "content": return_answer, "tool_calls": tool_calls}
+
+    def _json_to_tool_calls(self, content):
+        """Fallback parser for models that emit JSON tool calls inside <function_call>
+        instead of the python-call syntax `[func(a=1)]`. Accepts a single object or a
+        list of them, in the shapes:
+          {"name": f, "arguments"/"parameters": {..}}   (nested args), or
+          {"name": f, <arg1>: v1, <arg2>: v2}           (args flat alongside the name).
+        Returns a list of FunctionCall (empty if the content is not such JSON)."""
+        try:
+            data = json.loads(content)
+        except Exception:
+            return []
+        if isinstance(data, dict):
+            data = [data]
+        if not isinstance(data, list):
+            return []
+        calls = []
+        for d in data:
+            if not isinstance(d, dict):
+                continue
+            name = d.get("name") or d.get("function")
+            if not name or not isinstance(name, str):
+                continue
+            args = d.get("arguments", d.get("parameters"))
+            if args is None:
+                args = {k: v for k, v in d.items() if k not in ("name", "function")}
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except Exception:
+                    args = {}
+            if not isinstance(args, dict):
+                args = {}
+            calls.append(FunctionCall(function=name, args=args, id=f"tool_call_{uuid.uuid4().hex[:10]}"))
+        return calls
 
     def _tool_call_to_str(self, tool_call: FunctionCall):
         if tool_call.id is None:
