@@ -6,8 +6,9 @@ from typing import Optional, Sequence
 
 import anthropic
 import openai
-from google import genai
-from google.genai import types as genai_types
+# google.genai is imported lazily inside GoogleModel (below) -- it is only needed for
+# Gemini models and some installed versions crash at import time against certain
+# pydantic versions, which would otherwise break every run (local/OpenAI included).
 
 from prompts import EXECUTION_GUIDELINES_PROMPT
 
@@ -267,6 +268,10 @@ class GoogleModel(_TokenTrackingClient):
     label = "Google"
 
     def __init__(self, model="gemini-2.0-flash", project_id: Optional[str] = None, location: Optional[str] = "us-central1", logger=None, max_tokens=DEFAULT_MAX_TOKENS):
+        # Lazy import: only Gemini runs pay the google.genai import cost / risk.
+        global genai, genai_types
+        from google import genai
+        from google.genai import types as genai_types
         self.model = model
         self.logger = logger
         self.max_tokens = max_tokens
