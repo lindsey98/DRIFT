@@ -14,30 +14,17 @@ Enabling all three = the **DRIFT defense**; enabling none = the **original model
 
 ```bash
 conda create -n drift python=3.11 && conda activate drift
-```
-
-Then install **one** benchmark backend. Both expose the same `agentdojo` package/CLI, so the DRIFT commands below are identical either way — AgentDyn just registers three extra suites.
-
-**AgentDojo** — 4 suites (`banking, slack, travel, workspace`):
-
-```bash
-pip install "agentdojo==0.1.35" -r requirements.txt
-```
-
-**AgentDyn** — the same 4 suites **plus** `shopping, github, dailylife`. AgentDyn is a drop-in `agentdojo` (same import name, same version `0.1.35`) published only on GitHub, so install it from source **first**; the subsequent `requirements.txt` then sees `agentdojo==0.1.35` already satisfied and leaves the source install in place:
-
-```bash
-git clone git@github.com:SaFo-Lab/AgentDyn.git
-pip install -e ./AgentDyn
 pip install -r requirements.txt
 ```
 
-Verify which backend is active (the suite list tells you):
+The `agentdojo` dependency is pinned (in `requirements.txt`) to the fork
+[`lindsey98/agentdojo`](https://github.com/lindsey98/agentdojo) — a drop-in `agentdojo`
+(same import name / version `0.1.35`) that bundles the original 4 suites (`banking, slack,
+travel, workspace`) **plus** `shopping, github, dailylife`. Verify all 7 are registered:
 
 ```bash
 python -c "from agentdojo.task_suite.load_suites import get_suites; print(sorted(get_suites('v1.2')))"
-# AgentDojo -> ['banking', 'slack', 'travel', 'workspace']
-# AgentDyn  -> ['banking', 'dailylife', 'github', 'shopping', 'slack', 'travel', 'workspace']
+# -> ['banking', 'dailylife', 'github', 'shopping', 'slack', 'travel', 'workspace']
 ```
 
 ## Models & API Keys
@@ -87,7 +74,7 @@ python pipeline_main.py \
   --suites banking,slack,travel,workspace
 ```
 
-**Suites** — AgentDojo: `banking,slack,travel,workspace`. AgentDyn adds `shopping,github,dailylife` (install AgentDyn per [Installation](#installation)). Same interface for both; pass any of them to `--suites`, e.g. `--suites shopping,github,dailylife`. Requesting an AgentDyn suite without AgentDyn installed exits with a message telling you to install it.
+**Suites** — all 7 come from the [`lindsey98/agentdojo`](https://github.com/lindsey98/agentdojo) install: `banking, slack, travel, workspace, shopping, github, dailylife`. Pass any to `--suites`, e.g. `--suites shopping,github,dailylife`. Requesting a suite the installed `agentdojo` doesn't register exits with a clear message.
 
 **Other flags:** `--adaptive_attack`, `--attack_type <name>` (see `utils.py` for the full list), `--target_user_tasks 1,4,7`, `--target_injection_tasks 1,2,3`, `--force_rerun`.
 
@@ -114,7 +101,7 @@ python pipeline_main.py \
   --suites banking,slack,travel
 ```
 
-**Coverage:** the multi-turn variants load pre-generated dialogues from `chatinject_data/`, keyed by exact injection-GOAL string, and ChatInject only generated them for **banking / slack / travel**. An uncovered GOAL (e.g. any workspace/shopping/github/dailylife task, or a GOAL AgentDyn reworded) raises a clear `ValueError`. The single-turn `chat_inject_qwen3` / `chat_inject_glm` variants have no data dependency and work on any suite. Template delimiters are defined in `chatinject_attack.py:MODEL_CONFIGS` — verify them against your served model's `tokenizer_config` before trusting the numbers.
+**Coverage:** the multi-turn variants load pre-generated dialogues from `chatinject_data/`, keyed by exact injection-GOAL string, and ChatInject only generated them for **banking / slack / travel**. An uncovered GOAL (e.g. any workspace/shopping/github/dailylife task, or a GOAL the fork reworded) raises a clear `ValueError`. The single-turn `chat_inject_qwen3` / `chat_inject_glm` variants have no data dependency and work on any suite. Template delimiters are defined in `chatinject_attack.py:MODEL_CONFIGS` — verify them against your served model's `tokenizer_config` before trusting the numbers.
 
 ## Results
 
