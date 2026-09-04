@@ -111,7 +111,11 @@ class DRIFTLLM(PromptingLLM):
         outside_content = message
         try:
             def fix_function_calls(s):
-                inner = s.strip()[1:-1]
+                s = s.strip()
+                # Tolerate a bare call `func(a=1)` without the `[...]` list wrapper: only
+                # strip the brackets when they are actually present (stripping s[1:-1]
+                # unconditionally would mangle an unwrapped call into `unc(a=1`).
+                inner = s[1:-1] if (s.startswith("[") and s.endswith("]")) else s
                 items = [item.strip() for item in inner.split(',')]
                 
                 fixed_items = []

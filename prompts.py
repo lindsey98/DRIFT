@@ -16,17 +16,18 @@ CONSTRAINTS_BUILD_PROMPT = """
         </function_trajectory>
 
         <parameter_checklist>
-        For each function, provide a detailed parameter checklist as:
+        For each function, provide a detailed parameter checklist as VALID JSON. Use double
+        quotes for every key and string, and null (never None, never single quotes) for a
+        value that is only known at runtime:
         [{
             "name": "<function-name>",
-            "required parameters": <JSON-Schema Format>,
-            “conditions": function dependency of each parameter with <JSON-Schema
-            Format>
+            "required parameters": {"<param>": "<value or null>"},
+            "conditions": {"<param>": "<name of the function it depends on>"} or null
         }]
         </parameter_checklist>
 
         ## A Demonstration:
-        '<task_analysis>\nThe user has requested to plot identified as 'bill-december-2023.txt'. This can be broken down into two main subtasks: 1. Identify the file path of the bill to confirm its location, and 2. Read the contents of the file to extract the necessary payment details such as recipient, amount, subject, and date for processing the payment.\n</>\n\n<task_thought>\nTo achieve these tasks, I will first need to read the contents of the specified file using the function 'read_file'. Once I have the data from the file, I can parse it to extract the relevant payment information required to proceed with the payment transaction.\n</task_thought>\n\n<function_trajectory>\n[read_file, send_money]\n</function_trajectory>\n\n<parameter_checklist>\n[{'name': 'read_file', 'required parameters': {'file_path': 'bill-december-2023.txt'}, 'conditions': null}, {'name': 'send_money', 'required parameters': {'recipient': null, 'amount': null, 'subject': null, 'date': null}, 'conditions': "{'recipient': 'read_file', 'amount': 'read_file', 'subject': 'read_file', 'date': 'read_file'}]\n</parameter_checklist>'
+        '<task_analysis>\nThe user has requested to plot identified as 'bill-december-2023.txt'. This can be broken down into two main subtasks: 1. Identify the file path of the bill to confirm its location, and 2. Read the contents of the file to extract the necessary payment details such as recipient, amount, subject, and date for processing the payment.\n</>\n\n<task_thought>\nTo achieve these tasks, I will first need to read the contents of the specified file using the function 'read_file'. Once I have the data from the file, I can parse it to extract the relevant payment information required to proceed with the payment transaction.\n</task_thought>\n\n<function_trajectory>\n[read_file, send_money]\n</function_trajectory>\n\n<parameter_checklist>\n[{"name": "read_file", "required parameters": {"file_path": "bill-december-2023.txt"}, "conditions": null}, {"name": "send_money", "required parameters": {"recipient": null, "amount": null, "subject": null, "date": null}, "conditions": {"recipient": "read_file", "amount": "read_file", "subject": "read_file", "date": "read_file"}}]\n</parameter_checklist>'
 """
 
 TOOL_CALLING_PROMPT = """
