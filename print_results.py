@@ -3,8 +3,8 @@ import glob
 import json
 import os
 
-# DEFAULT_SUITES = ["banking", "slack", "travel", "workspace", "github", "shopping", "dailylife"]
-DEFAULT_SUITES = ["github", "shopping", "dailylife"]
+DEFAULT_SUITES = ["banking", "slack", "travel", "workspace", "github", "shopping", "dailylife"]
+# DEFAULT_SUITES = []
 
 
 def run_dir_name(model: str) -> str:
