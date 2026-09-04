@@ -12,15 +12,21 @@ Enabling all three = the **DRIFT defense**; enabling none = the **original model
 
 ## Installation
 
+`agentdojo` comes from the fork [`lindsey98/agentdojo`](https://github.com/lindsey98/agentdojo)
+— a drop-in `agentdojo` (same import name / version `0.1.35`) that bundles the original 4
+suites (`banking, slack, travel, workspace`) **plus** `shopping, github, dailylife`. Clone it
+and install from the local copy (retriable if your network is flaky; you can also download the
+repo zip instead of `git clone`), then install the rest:
+
 ```bash
 conda create -n drift python=3.11 && conda activate drift
+git clone https://github.com/lindsey98/agentdojo.git
+pip install -e ./agentdojo
 pip install -r requirements.txt
 ```
 
-The `agentdojo` dependency is pinned (in `requirements.txt`) to the fork
-[`lindsey98/agentdojo`](https://github.com/lindsey98/agentdojo) — a drop-in `agentdojo`
-(same import name / version `0.1.35`) that bundles the original 4 suites (`banking, slack,
-travel, workspace`) **plus** `shopping, github, dailylife`. Verify all 7 are registered:
+`requirements.txt` does **not** pin `agentdojo`, so the last step never re-fetches it over the
+network. Verify all 7 suites are registered:
 
 ```bash
 python -c "from agentdojo.task_suite.load_suites import get_suites; print(sorted(get_suites('v1.2')))"
