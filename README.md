@@ -62,21 +62,21 @@ python -m vllm.entrypoints.openai.api_server \
 
 ```bash
 python pipeline_main.py MODEL --run-attack --attack <name> \
-  --suites banking slack travel workspace --defense drift
+  --suite banking slack travel workspace --defense drift
 ```
 
 **No attack (benign utility):**
 
 ```bash
 python pipeline_main.py MODEL \
-  --suites banking slack travel workspace --defense drift
+  --suite banking slack travel workspace --defense drift
 ```
 
 Example:
 
 ```bash
 python pipeline_main.py Qwen3.6-35B-A3B --run-attack --attack important_instructions \
-  --suites banking slack travel workspace --defense drift
+  --suite banking slack travel workspace --defense drift
 ```
 
 - **`--defense none | drift`** — swap `drift` for `none` to run the undefended original model.
@@ -104,7 +104,7 @@ Pick the variant matching your `MODEL` (Qwen3 template vs GLM template) — the 
 ```bash
 python pipeline_main.py Qwen3-30B-A3B-Instruct-2507 \
   --run-attack --attack chat_inject_qwen3_with_utility_system_multiturn_7 \
-  --suites banking slack travel --defense drift
+  --suite banking slack travel --defense drift
 ```
 
 **Coverage:** the multi-turn variants load pre-generated dialogues from `chatinject_data/`, keyed by exact injection-GOAL string, and ChatInject only generated them for **banking / slack / travel**. An uncovered GOAL (e.g. any workspace/shopping/github/dailylife task, or a GOAL the fork reworded) raises a clear `ValueError`. The single-turn `chat_inject_qwen3` / `chat_inject_glm` variants have no data dependency and work on any suite. Template delimiters are defined in `chatinject_attack.py:MODEL_CONFIGS` — verify them against your served model's `tokenizer_config` before trusting the numbers.

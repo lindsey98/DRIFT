@@ -28,8 +28,8 @@ def get_args(description='DRIFT'):
     parser.add_argument('model', type=str,
                         help='Model name, e.g. gpt-4o-mini-2024-07-18, Qwen3.6-35B-A3B, anthropic:claude-sonnet-4-5-20250929.')
 
-    # Suites are space-separated:  --suites banking slack travel workspace
-    parser.add_argument('--suites', nargs='+',
+    # Suites are space-separated:  --suite banking slack travel workspace
+    parser.add_argument('--suite', dest='suites', nargs='+',
                         default=['banking', 'slack', 'travel', 'workspace'],
                         help='Suites to run, space-separated. Available: banking slack travel workspace shopping github dailylife.')
     parser.add_argument('--benchmark_version', type=str, default='v1.2', help='agentdojo benchmark version.')
