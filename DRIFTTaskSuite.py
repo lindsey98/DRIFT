@@ -1,5 +1,16 @@
 from import_lib import *
 
+
+def _escape_yaml_value(value: str) -> str:
+    """Escape special characters so an injection is safe to substitute into a
+    double-quoted YAML scalar (which is where read_suite_file's re-dump puts the
+    injection-vector placeholders). Backslash / double-quote / newline are escaped;
+    YAML unescapes them on parse, so the agent still sees the original content.
+    Ported from the agentdojo fork -- required for data-only attacks (whose payloads
+    contain quotes/commas/braces by design) but harmless for all other attacks."""
+    return str(value).replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+
+
 class InjectionVector(BaseModel):
     description: str
     default: str
@@ -72,7 +83,10 @@ class DRIFTTaskSuite(TaskSuite[Env]):
         injection_vector_defaults = self.get_injection_vector_defaults()
         injections_with_defaults = dict(injection_vector_defaults, **injections)
         validate_injections(injections, injection_vector_defaults)
-        injected_environment = environment_text.format(**injections_with_defaults)
+        # Escape special YAML chars (quotes/backslash/newlines) so an injection can't break
+        # the environment parse -- data-only payloads contain them by design.
+        escaped_injections = {k: _escape_yaml_value(v) for k, v in injections_with_defaults.items()}
+        injected_environment = environment_text.format(**escaped_injections)
         environment = self.environment_type.model_validate(yaml.safe_load(injected_environment))
         return environment
 
