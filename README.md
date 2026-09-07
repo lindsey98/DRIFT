@@ -2,13 +2,13 @@
 
 ## Overview
 
-Official implementation of the NeurIPS 2025 paper "[DRIFT: Dynamic Rule-Based Defense with Injection Isolation for Securing LLM Agents](https://www.arxiv.org/pdf/2506.12104)". DRIFT defends tool-using LLM agents against indirect prompt injection via three components, toggled by CLI flags:
+Official implementation of the NeurIPS 2025 paper "[DRIFT: Dynamic Rule-Based Defense with Injection Isolation for Securing LLM Agents](https://www.arxiv.org/pdf/2506.12104)". DRIFT defends tool-using LLM agents against indirect prompt injection via three components, enabled together by `--defense drift`:
 
-- `--build_constraints` — build an initial function-trajectory plan + parameter checklist from the user query.
-- `--injection_isolation` — detect and isolate injected instructions in tool results.
-- `--dynamic_validation` — validate each step against the plan/checklist at runtime.
+- **build_constraints** — build an initial function-trajectory plan + parameter checklist from the user query.
+- **injection_isolation** — detect and isolate injected instructions in tool results.
+- **dynamic_validation** — validate each step against the plan/checklist at runtime.
 
-Enabling all three = the **DRIFT defense**; enabling none = the **original model** (undefended baseline).
+`--defense drift` = the **DRIFT defense** (all three); `--defense none` = the **original model** (undefended baseline).
 
 ## Installation
 
@@ -35,9 +35,9 @@ python -c "from agentdojo.task_suite.load_suites import get_suites; print(sorted
 
 ## Models & API Keys
 
-The provider is selected automatically from the `--model` name. Export the matching key.
+The provider is selected automatically from the positional `MODEL` name. Export the matching key.
 
-| Provider   | `--model` example                              | Env var(s) |
+| Provider   | `MODEL` example                                | Env var(s) |
 |------------|------------------------------------------------|------------|
 | OpenAI     | `gpt-4o-mini-2024-07-18`                        | `OPENAI_API_KEY` |
 | Google     | `gemini-2.5-pro`                                | `GOOGLE_API_KEY` (Vertex: `GCP_PROJECT`, `GCP_LOCATION`) |
@@ -55,40 +55,42 @@ python -m vllm.entrypoints.openai.api_server \
 
 ## How to Run
 
-All benchmarks use the same entry point:
+`MODEL` is positional; `--defense` is `none` (undefended original model) or `drift`
+(= build_constraints + injection_isolation + dynamic_validation). Results always go under `logs/`.
+
+**Under attack:**
 
 ```bash
-python pipeline_main.py --model <MODEL> [ATTACK] [DEFENSE] --suites <SUITES>
+python pipeline_main.py MODEL --run-attack --attack <name> \
+  --suites banking slack travel workspace --defense drift
 ```
 
-Pick the `[ATTACK]` and `[DEFENSE]` fragments for the configuration you want:
-
-| Configuration                         | `[ATTACK]`                                          | `[DEFENSE]` |
-|---------------------------------------|-----------------------------------------------------|-------------|
-| Attack + DRIFT defense                | `--do_attack --attack_type important_instructions`  | `--build_constraints --injection_isolation --dynamic_validation` |
-| No attack + DRIFT defense             | *(none)*                                            | `--build_constraints --injection_isolation --dynamic_validation` |
-| Attack + original model               | `--do_attack --attack_type important_instructions`  | *(none)* |
-| No attack + original model            | *(none)*                                            | *(none)* |
-
-Example (attack + DRIFT defense on AgentDojo):
+**No attack (benign utility):**
 
 ```bash
-python pipeline_main.py \
-  --model anthropic:claude-sonnet-4-5-20250929 \
-  --do_attack --attack_type important_instructions \
-  --build_constraints --injection_isolation --dynamic_validation \
-  --suites banking,slack,travel,workspace
+python pipeline_main.py MODEL \
+  --suites banking slack travel workspace --defense drift
 ```
 
-**Suites** — all 7 come from the [`lindsey98/agentdojo`](https://github.com/lindsey98/agentdojo) install: `banking, slack, travel, workspace, shopping, github, dailylife`. Pass any to `--suites`, e.g. `--suites shopping,github,dailylife`. Requesting a suite the installed `agentdojo` doesn't register exits with a clear message.
+Example:
 
-**Other flags:** `--adaptive_attack`, `--attack_type <name>` (see `utils.py` for the full list), `--target_user_tasks 1,4,7`, `--target_injection_tasks 1,2,3`, `--force_rerun`.
+```bash
+python pipeline_main.py Qwen3.6-35B-A3B --run-attack --attack important_instructions \
+  --suites banking slack travel workspace --defense drift
+```
+
+- **`--defense none | drift`** — swap `drift` for `none` to run the undefended original model.
+- **`--attack <name>`** — any registered agentdojo attack: `important_instructions`, `tool_knowledge`, `data_only_syntactic`, `data_only_semantic`, `chat_inject_qwen3`, `cascade_*`, … (omit `--run-attack` for the benign setting).
+- **Suites** — space-separated; all 7 come from the [`lindsey98/agentdojo`](https://github.com/lindsey98/agentdojo) install: `banking slack travel workspace shopping github dailylife`. Requesting a suite the installed `agentdojo` doesn't register exits with a clear message.
+- **Task subset** — `--user-task`/`-ut` and `--injection-task`/`-it` take space-separated ids or numbers, e.g. `-ut 1 4 7 -it 0 1` (default: all).
+- **Optional** — `--force_rerun` (recompute cached tasks), `--html` (save a rendered `<name>.html` next to each `<name>.json`).
+- **Attack modifiers** (compose with `--run-attack`): `--adaptive_attack`, `--align_claim`, `--close_tag`, `--repeated_instruction [--repeat_n N]`.
 
 ### ChatInject
 
-[ChatInject](https://github.com/hwanchang00/ChatInject) injects the **target model's own chat-template delimiters** into a tool result, closing the current turn and opening a fake system/user/assistant exchange — the role confusion is the exploit. Registered as `--attack_type <name>`:
+[ChatInject](https://github.com/hwanchang00/ChatInject) injects the **target model's own chat-template delimiters** into a tool result, closing the current turn and opening a fake system/user/assistant exchange — the role confusion is the exploit. Pass as `--attack <name>`:
 
-| `--attack_type` | Template | Payload |
+| `--attack` | Template | Payload |
 |---|---|---|
 | `chat_inject_qwen3` | Qwen3 | single fake system+user turn |
 | `chat_inject_glm` | GLM | single fake system+user turn |
@@ -97,14 +99,12 @@ python pipeline_main.py \
 | `chat_inject_qwen3_with_utility_authority_endorsement_system_multiturn_7` | Qwen3 | 7-turn dialogue, authority-endorsement persuasion |
 | `chat_inject_glm_with_utility_authority_endorsement_system_multiturn_7` | GLM | 7-turn dialogue, authority-endorsement persuasion |
 
-Pick the variant matching your `--model` (Qwen3 template vs GLM template) — the delimiters are model-specific, so a mismatched template silently no-ops. Example:
+Pick the variant matching your `MODEL` (Qwen3 template vs GLM template) — the delimiters are model-specific, so a mismatched template silently no-ops. Example:
 
 ```bash
-python pipeline_main.py \
-  --model Qwen3-30B-A3B-Instruct-2507 \
-  --do_attack --attack_type chat_inject_qwen3_with_utility_system_multiturn_7 \
-  --build_constraints --injection_isolation --dynamic_validation \
-  --suites banking,slack,travel
+python pipeline_main.py Qwen3-30B-A3B-Instruct-2507 \
+  --run-attack --attack chat_inject_qwen3_with_utility_system_multiturn_7 \
+  --suites banking slack travel --defense drift
 ```
 
 **Coverage:** the multi-turn variants load pre-generated dialogues from `chatinject_data/`, keyed by exact injection-GOAL string, and ChatInject only generated them for **banking / slack / travel**. An uncovered GOAL (e.g. any workspace/shopping/github/dailylife task, or a GOAL the fork reworded) raises a clear `ValueError`. The single-turn `chat_inject_qwen3` / `chat_inject_glm` variants have no data dependency and work on any suite. Template delimiters are defined in `chatinject_attack.py:MODEL_CONFIGS` — verify them against your served model's `tokenizer_config` before trusting the numbers.

@@ -23,32 +23,53 @@ def get_logger(filename=None):
 
 def get_args(description='DRIFT'):
     parser = argparse.ArgumentParser(description=description)
-    # Eval Setting
-    parser.add_argument('--benchmark_version', type=str, default='v1.2', help='the version of agentdojo')
-    parser.add_argument('--model', type=str, default='gpt-4o-mini-2024-07-18', help='gpt-4o-mini, gpt-4o')
-    parser.add_argument("--suites", type=str, default="banking,slack,travel,workspace", help="Which suites to use, comma-separated. AgentDojo: banking, slack, travel, workspace. AgentDyn adds: shopping, github, dailylife (requires AgentDyn installed as the agentdojo drop-in; see README).")
-    parser.add_argument('--force_rerun', action='store_true', help='Whether to force rerun.')
+
+    # Model is positional:  python pipeline_main.py MODEL [options]
+    parser.add_argument('model', type=str,
+                        help='Model name, e.g. gpt-4o-mini-2024-07-18, Qwen3.6-35B-A3B, anthropic:claude-sonnet-4-5-20250929.')
+
+    # Suites are space-separated:  --suites banking slack travel workspace
+    parser.add_argument('--suites', nargs='+',
+                        default=['banking', 'slack', 'travel', 'workspace'],
+                        help='Suites to run, space-separated. Available: banking slack travel workspace shopping github dailylife.')
+    parser.add_argument('--benchmark_version', type=str, default='v1.2', help='agentdojo benchmark version.')
+
+    # Attack:  --run-attack --attack <name>
+    parser.add_argument('--run-attack', dest='do_attack', action='store_true',
+                        help='Run under attack (omit for the benign/no-attack setting).')
+    parser.add_argument('--attack', dest='attack_type', type=str, default='important_instructions',
+                        help='Attack name (any registered agentdojo attack), e.g. important_instructions, tool_knowledge, data_only_syntactic, chat_inject_qwen3.')
+
+    # Defense:  --defense none | drift
+    parser.add_argument('--defense', type=str, default='none',
+                        help="Defense: 'none' (undefended original model) or 'drift' "
+                             "(= build_constraints + injection_isolation + dynamic_validation).")
+
+    # Task selection (space-separated ids or numbers; default = all)
+    parser.add_argument('--user-task', '-ut', dest='target_user_tasks', type=str, nargs='*', default=None,
+                        help='User tasks to run (space-separated ids or numbers, e.g. -ut 1 4 7). Default: all.')
+    parser.add_argument('--injection-task', '-it', dest='target_injection_tasks', type=str, nargs='*', default=None,
+                        help='Injection tasks to run (space-separated ids or numbers, e.g. -it 0 1 2). Default: all.')
+
+    # Optional
+    parser.add_argument('--force_rerun', action='store_true', help='Recompute even if a result JSON already exists.')
     parser.add_argument('--html', action='store_true', help='Also save a rendered HTML trace next to each result JSON (<name>.json + <name>.html).')
-    parser.add_argument('--do_attack', action='store_true', help='Whether the setting is under attack.')
-    parser.add_argument('--attack_type', type=str, default="important_instructions", help='The attack type, you can select from "direct, ignore_previous, system_message, injecagent, dos, swearwords_dos, captcha_dos, offensive_email_dos, felony_dos, important_instructions, important_instructions_no_user_name, important_instructions_no_model_name, important_instructions_no_names, important_instructions_wrong_model_name, important_instructions_wrong_user_name, tool_knowledge"')
 
-    parser.add_argument('--target_user_tasks', type=str, default=None, help='User task number you want to evaluate, sperated by comma, such as "1,4,7".')
-    parser.add_argument('--target_injection_tasks', type=str, default=None, help='Injection task number you want to specific evaluate, sperated by comma, such as "1,2,3".')
+    # Attack modifiers (compose with --run-attack)
+    parser.add_argument("--adaptive_attack", action='store_true', help="Append the adaptive-attack claim to the injection.")
+    parser.add_argument("--align_claim", action='store_true', help="Wrap the injected goal with an aligned/required claim (targets the injection detector).")
+    parser.add_argument("--close_tag", action='store_true', help="Context-escape injection: close the tool-result tag so the payload renders outside the tool-data region.")
+    parser.add_argument("--repeated_instruction", action='store_true', help="Inject the goal plus N diverse paraphrases (sandwiched), so any phrasing the detector misses survives.")
+    parser.add_argument("--repeat_n", type=int, default=6, help="Number of paraphrases for --repeated_instruction (default 6 -> 3 before, goal, 3 after).")
 
-    # DRIFT Setting
-    parser.add_argument("--build_constraints", action='store_true', help="Whether to build initial constraints.")
-    parser.add_argument("--injection_isolation", action='store_true', help="Whether to detect injection instruction.")
-    parser.add_argument("--dynamic_validation", action='store_true', help="Whether to validate dynamically.")
-    parser.add_argument("--adaptive_attack", action='store_true', help="Whether to implement adaptive attack.")
-    parser.add_argument("--align_claim", action='store_true', help="Append a task-specific claim to the injection asserting it is aligned with / required by the user's actual task (targets the injection detector).")
-    parser.add_argument("--close_tag", action='store_true', help="Context-escape injection: prepend a closing tool-result tag (</tool_response>) plus a 'do this task first' prerequisite before the injected goal, so the payload renders outside the tool-data region of the model's chat template.")
-    parser.add_argument("--repeated_instruction", action='store_true', help="Repeated-instruction attack: paraphrase the injected goal N ways (via the target client, cached to disk) and inject all paraphrases plus the original together, so any phrasing the injection detector misses survives removal.")
-    parser.add_argument("--repeat_n", type=int, default=6, help="Number of paraphrases for --repeated_instruction; split evenly around the goal (default 6 -> 3 before, goal, 3 after).")
-
-    # Environment
-    parser.add_argument('--seed', type=int, default=98, help='Random Seed.')
-
+    parser.add_argument('--seed', type=int, default=98, help='Random seed.')
 
     args = parser.parse_args()
+
+    # Expand --defense into the three DRIFT component flags (all-on for 'drift', all-off otherwise).
+    drift_on = (args.defense or 'none').strip().lower() == 'drift'
+    args.build_constraints = drift_on
+    args.injection_isolation = drift_on
+    args.dynamic_validation = drift_on
 
     return args

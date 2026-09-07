@@ -178,14 +178,17 @@ def main(args, suite_type):
         parent_instance=suite,
     )
 
-    if args.target_user_tasks is None:
+    if not args.target_user_tasks:
         tasks_to_run = task_suite.user_tasks.values()
         logger.info("Evaluate on all User Tasks.")
 
     else:
-        target_user_task_id = args.target_user_tasks
-        tasks_to_run = [task_suite.user_tasks[f"user_task_{task_id}"] for task_id in args.target_user_tasks.split(",")]
-        logger.info(f"Evaluate on User Tasks of {target_user_task_id}.")
+        # Accept either a bare number ("1") or a full id ("user_task_1").
+        def _uid(t):
+            t = str(t)
+            return t if t.startswith("user_task_") else f"user_task_{t}"
+        tasks_to_run = [task_suite.user_tasks[_uid(t)] for t in args.target_user_tasks]
+        logger.info(f"Evaluate on User Tasks of {args.target_user_tasks}.")
 
     utility_result = []
     security_result = []
@@ -197,13 +200,16 @@ def main(args, suite_type):
     if attacker is not None:
         logger.info(f"Using Attack Method: {attacker}")
         attack = load_attack(attacker, task_suite, tools_pipeline)
-        target_injection_tasks = args.target_injection_tasks
-        if target_injection_tasks is not None:
+        if args.target_injection_tasks:
+            # Accept either a bare number ("0") or a full id ("injection_task_0").
+            def _iid(t):
+                t = str(t)
+                return t if t.startswith("injection_task_") else f"injection_task_{t}"
             injection_tasks_to_run = {
-            f"injection_task_{injection_task_id}": suite.get_injection_task_by_id(f"injection_task_{injection_task_id}")
-            for injection_task_id in args.target_injection_tasks.split(",")
+                _iid(t): suite.get_injection_task_by_id(_iid(t))
+                for t in args.target_injection_tasks
             }
-            logger.info(f"Injection Tasks of {target_injection_tasks}.")
+            logger.info(f"Injection Tasks of {args.target_injection_tasks}.")
         else:
             logger.info("Evaluate on all injection tasks.")
             injection_tasks_to_run = task_suite.injection_tasks
@@ -313,7 +319,7 @@ def print_results(args):
     run_label = compute_run_label(args)
 
     results = {}
-    for suite in args.suites.split(","):
+    for suite in args.suites:
         if attack is None:
             pattern = f"{log_dir}/{model}/{suite}/user_task_*/none/none.json"
         else:
@@ -354,7 +360,7 @@ def print_results(args):
 if __name__ == "__main__":
     args = get_args()
     set_seed(args.seed)
-    suites = args.suites.split(",")
+    suites = args.suites
     for suite_type in suites:
         main(args, suite_type)
 
