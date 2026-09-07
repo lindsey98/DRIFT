@@ -135,6 +135,7 @@ class DRIFTTaskSuite(TaskSuite[Env]):
         runtime_class: type[FunctionsRuntime] = FunctionsRuntime,
         environment: Env | None = None,
         verbose: bool = False,
+        security_check_fn=None,
     ) -> tuple[bool, bool]:
         """Run a task with the provided pipeline.
 
@@ -233,6 +234,13 @@ class DRIFTTaskSuite(TaskSuite[Env]):
         )
 
         format_messages = self.functions_call_format(messages)
+
+        # Data-only attack: there is no injection task; score with the provided
+        # security_check_fn(model_output_str, pre_env, post_env, traces) instead.
+        if security_check_fn is not None:
+            model_output_str = get_text_content_as_str(model_output or [])
+            security = bool(security_check_fn(model_output_str, pre_environment, task_environment, functions_stack_trace))
+            return utility, security, format_messages
 
         # Early return if no injection was intended
         if injection_task is None:
