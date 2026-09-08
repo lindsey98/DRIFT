@@ -9,7 +9,6 @@ from DRIFTTaskSuite import DRIFTTaskSuite
 from DRIFTToolsExecutionLoop import DRIFTToolsExecutionLoop
 from repeated_instruction import get_paraphrases, apply_repeated_instruction
 from render_trace import render_trace_html
-import chatinject_attack  # noqa: F401  # registers ChatInject attacks via @register_attack
 
 
 def _dump_record(record, result_file_path, logger, emit_html=False):
