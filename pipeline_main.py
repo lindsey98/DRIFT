@@ -219,6 +219,8 @@ def main(args, suite_type):
                 if want_idx is not None and inj_idx not in want_idx:
                     continue
                 pre_total_tokens = llm.client.total_tokens
+                pre_prompt_tokens = llm.client.prompt_tokens
+                pre_completion_tokens = llm.client.completion_tokens
                 result_file_path = Path(save_dir) / f"user_task_{user_task_idx}" / run_label / f"injection_task_{inj_idx}.json"
                 result_file_path.parent.mkdir(parents=True, exist_ok=True)
                 if not args.force_rerun and os.path.exists(result_file_path):
@@ -243,7 +245,7 @@ def main(args, suite_type):
                 end_time = time.time()
                 utility_result.append(utility)
                 security_result.append(security)
-                _dump_record({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": f"injection_task_{inj_idx}", "attack_type": f"{run_label}", "injections": injected_data, "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "detected_injections": llm.detected_injections, "final_trajectory": llm.function_trajectory, "final_checklist": llm.node_checklist, "alignment_decisions": llm.alignment_decisions, "isolation_events": llm.isolation_events, "events": llm.events, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, result_file_path, logger, emit_html=args.html)
+                _dump_record({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": f"injection_task_{inj_idx}", "attack_type": f"{run_label}", "injections": injected_data, "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "detected_injections": llm.detected_injections, "final_trajectory": llm.function_trajectory, "final_checklist": llm.node_checklist, "alignment_decisions": llm.alignment_decisions, "isolation_events": llm.isolation_events, "events": llm.events, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "prompt_tokens": llm.client.prompt_tokens - pre_prompt_tokens, "completion_tokens": llm.client.completion_tokens - pre_completion_tokens, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, result_file_path, logger, emit_html=args.html)
                 logger.info(f"user_task_{user_task_idx} with injection_task_{inj_idx} Utility Success Ratio: {utility_result.count(True) + resume_utility} / {len(utility_result) + resume_total}")
                 logger.info(f"user_task_{user_task_idx} with injection_task_{inj_idx} Attack Success Ratio: {security_result.count(True) + resume_security} / {len(security_result) + resume_total}")
 
@@ -271,6 +273,8 @@ def main(args, suite_type):
                 match = re.fullmatch(r'injection_task_(\d+)', injection_task_id)
                 injection_task_idx = int(match.group(1))
                 pre_total_tokens = llm.client.total_tokens
+                pre_prompt_tokens = llm.client.prompt_tokens
+                pre_completion_tokens = llm.client.completion_tokens
 
                 result_file_path = Path(save_dir) / f"user_task_{user_task_idx}" / run_label / f"injection_task_{injection_task_idx}.json"
                 result_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -311,7 +315,7 @@ def main(args, suite_type):
                 end_time = time.time()
                 utility_result.append(utility)
                 security_result.append(security)
-                _dump_record({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": f"injection_task_{injection_task_idx}", "attack_type": f"{run_label}", "injections": task_injections, "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "align_claim": args.align_claim, "close_tag": args.close_tag, "repeated_instruction": args.repeated_instruction, "repeat_n": (args.repeat_n if args.repeated_instruction else None), "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "detected_injections": llm.detected_injections, "final_trajectory": llm.function_trajectory, "final_checklist": llm.node_checklist, "alignment_decisions": llm.alignment_decisions, "isolation_events": llm.isolation_events, "events": llm.events, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, result_file_path, logger, emit_html=args.html)
+                _dump_record({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": f"injection_task_{injection_task_idx}", "attack_type": f"{run_label}", "injections": task_injections, "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "align_claim": args.align_claim, "close_tag": args.close_tag, "repeated_instruction": args.repeated_instruction, "repeat_n": (args.repeat_n if args.repeated_instruction else None), "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "detected_injections": llm.detected_injections, "final_trajectory": llm.function_trajectory, "final_checklist": llm.node_checklist, "alignment_decisions": llm.alignment_decisions, "isolation_events": llm.isolation_events, "events": llm.events, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "prompt_tokens": llm.client.prompt_tokens - pre_prompt_tokens, "completion_tokens": llm.client.completion_tokens - pre_completion_tokens, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, result_file_path, logger, emit_html=args.html)
 
                 logger.info(f"user_task_{user_task_idx} with injection_task_{injection_task_idx} Utility Success Ratio: {utility_result.count(True) + resume_utility} / {len(utility_result) + resume_total}")
                 logger.info(f"user_task_{user_task_idx} with injection_task_{injection_task_idx} Attack Success Ratio: {security_result.count(True) + resume_security} / {len(security_result) + resume_total}")
@@ -323,6 +327,8 @@ def main(args, suite_type):
             match = re.fullmatch(r'user_task_(\d+)', user_task_name)
             user_task_idx = int(match.group(1))
             pre_total_tokens = llm.client.total_tokens
+            pre_prompt_tokens = llm.client.prompt_tokens
+            pre_completion_tokens = llm.client.completion_tokens
             
             result_file_path = Path(save_dir) / f"user_task_{user_task_idx}" / "none" / f"none.json"
             result_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -350,7 +356,7 @@ def main(args, suite_type):
             end_time = time.time()
             utility_result.append(utility)
             security_result.append(security)
-            _dump_record({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": None, "attack_type": None, "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "detected_injections": llm.detected_injections, "final_trajectory": llm.function_trajectory, "final_checklist": llm.node_checklist, "alignment_decisions": llm.alignment_decisions, "isolation_events": llm.isolation_events, "events": llm.events, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, result_file_path, logger, emit_html=args.html)
+            _dump_record({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": None, "attack_type": None, "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "detected_injections": llm.detected_injections, "final_trajectory": llm.function_trajectory, "final_checklist": llm.node_checklist, "alignment_decisions": llm.alignment_decisions, "isolation_events": llm.isolation_events, "events": llm.events, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "prompt_tokens": llm.client.prompt_tokens - pre_prompt_tokens, "completion_tokens": llm.client.completion_tokens - pre_completion_tokens, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, result_file_path, logger, emit_html=args.html)
 
             logger.info(f"user_task_{user_task_idx} Utility Success Ratio: {utility_result.count(True) + resume_utility} / {len(utility_result) + resume_total}")
 
