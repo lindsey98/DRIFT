@@ -135,14 +135,14 @@ def main(args, suite_type):
         client = AnthropicModel(model=anthropic_model, logger=logger)
         logger.info(f"Using Anthropic Client: {anthropic_model}")
 
-    elif model_name.startswith("local:") or (
-        "/" not in model_name
-        and (model_name.lower().startswith("qwen") or model_name.lower().startswith("llama"))
-    ):
+    elif model_name.startswith("local:") or "/" not in model_name:
         # Locally-served, OpenAI-compatible model served via vLLM/SGLang/Ollama, e.g.
-        # Qwen3-30B-A3B-Instruct-2507 or Llama-3.3-70B-Instruct. Accept either a
-        # "local:<name>" prefix or a bare Qwen/Llama served-model name (no provider
-        # slash, which would otherwise route to OpenRouter, e.g. meta-llama/...).
+        # Qwen3-30B-A3B-Instruct-2507, Llama-3.3-70B-Instruct, gemma-4-26B-A4B. Accept
+        # either a "local:<name>" prefix or any bare served-model name (no provider
+        # slash). OpenRouter models are always "org/model" (with a slash), so a bare
+        # name is never OpenRouter -- routing it here matches the vLLM served-name
+        # convention and avoids sending localhost traffic out to openrouter.ai.
+        # (Cloud prefixes gpt-/gemini-/anthropic:/claude are handled by the branches above.)
         local_model = model_name.split("local:", 1)[-1]
         client = LocalModel(model=local_model, logger=logger)
         logger.info(f"Using Local Client: {local_model}")

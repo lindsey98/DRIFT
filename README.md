@@ -42,11 +42,11 @@ The provider is selected automatically from the positional `MODEL` name. Export 
 | OpenAI     | `gpt-4o-mini-2024-07-18`                        | `OPENAI_API_KEY` |
 | Google     | `gemini-2.5-pro`                                | `GOOGLE_API_KEY` (Vertex: `GCP_PROJECT`, `GCP_LOCATION`) |
 | Anthropic  | `anthropic:claude-sonnet-4-5-20250929`          | `ANTHROPIC_API_KEY` |
-| Local      | `Qwen3-30B-A3B-Instruct-2507`, `Llama-3.3-70B-Instruct`, or `local:<name>` | `LOCAL_API_BASE`, `LOCAL_API_KEY` |
-| OpenRouter | anything else (e.g. `meta-llama/Llama-3-70b-chat-hf`) | `OPENROUTER_API_KEY` |
+| Local      | any bare served-name, e.g. `Qwen3-30B-A3B-Instruct-2507`, `gemma-4-26B-A4B`, or `local:<name>` | `LOCAL_API_BASE`, `LOCAL_API_KEY` |
+| OpenRouter | an `org/model` name (with a slash), e.g. `meta-llama/Llama-3-70b-chat-hf` | `OPENROUTER_API_KEY` |
 
-**Local models:** any OpenAI-compatible server (vLLM/SGLang/Ollama) works. 
-Bare `qwen…`/`llama…` names (no `/`) and `local:…` route to `LOCAL_API_BASE` (default `http://localhost:8000/v1`, key `EMPTY`). Example:
+**Local models:** any OpenAI-compatible server (vLLM/SGLang/Ollama) works.
+Any **bare** served-model name (no `/`, and not a `gpt-`/`gemini-`/`anthropic:`/`claude` cloud prefix), as well as `local:…`, routes to `LOCAL_API_BASE` (default `http://localhost:8000/v1`, key `EMPTY`). OpenRouter names always contain a `/` (`org/model`), so they never collide with local names. Example:
 
 ```bash
 python -m vllm.entrypoints.openai.api_server \
