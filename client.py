@@ -6,6 +6,7 @@ from typing import Optional, Sequence
 
 import anthropic
 import openai
+import httpx
 # google.genai is imported lazily inside GoogleModel (below) -- it is only needed for
 # Gemini models and some installed versions crash at import time against certain
 # pydantic versions, which would otherwise break every run (local/OpenAI included).
@@ -77,11 +78,11 @@ class OpenAIModel(_TokenTrackingClient):
 
     label = "OpenAI"
 
-    def __init__(self, model="gpt-4o-mini-2024-07-18", api_key=None, base_url=None, logger=None, max_tokens=DEFAULT_MAX_TOKENS):
+    def __init__(self, model="gpt-4o-mini-2024-07-18", api_key=None, base_url=None, logger=None, max_tokens=DEFAULT_MAX_TOKENS, http_client=None):
         self.model = model
         self.logger = logger
         self.max_tokens = max_tokens
-        self.client = openai.OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"), base_url=base_url)
+        self.client = openai.OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"), base_url=base_url, http_client=http_client)
         self._init_token_counters()
         if self.logger:
             self.logger.info(f"Using {self.label} model {model}.")
@@ -174,6 +175,10 @@ class LocalModel(OpenAIModel):
             base_url=base_url or os.getenv("LOCAL_API_BASE", "http://localhost:8000/v1"),
             logger=logger,
             max_tokens=max_tokens,
+            # The endpoint is local; never route it through an HTTP(S)_PROXY (which resets
+            # localhost TLS: "Connection reset by peer"). trust_env=False makes httpx ignore
+            # the proxy/NO_PROXY env vars and connect directly.
+            http_client=httpx.Client(trust_env=False),
         )
         if self.logger:
             self.logger.info(f"Local endpoint: {self.client.base_url}")
