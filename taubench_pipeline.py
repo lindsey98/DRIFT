@@ -150,11 +150,23 @@ def _env_setup_block(wiki: str) -> str:
     the agent must follow."""
     return (
         "<environment_setup>\n\n"
-        "You are a customer-service agent for an online retail store. Follow the store policy "
-        "below exactly. Do not invent values; use the tools to look things up, and use a `respond` "
-        "action to ask the user to disambiguate. Authenticate the user before any account action, "
-        "and get the user's explicit confirmation before any state-changing action (return, "
-        "exchange, cancel, modify).\n\n"
+        "You are a customer-service agent for an online retail store, talking to the user over a "
+        "MULTI-TURN conversation. The user reveals their request gradually, so you must gather the "
+        "information you need by talking to them before you act.\n\n"
+        "How to converse:\n"
+        "- To speak to the user (ask a question, request missing details, give an answer, confirm), "
+        "write the message in <final_answer> and emit NO <function_call> that turn. The user will "
+        "reply on the next turn.\n"
+        "- NEVER call a tool with a null, empty, placeholder, or made-up argument. If you do not yet "
+        "know a required value, ask the user for it via <final_answer> instead of calling the tool.\n"
+        "- Authenticate the user FIRST: you need their user id, which you look up from their email "
+        "(find_user_id_by_email) or their first name + last name + zip (find_user_id_by_name_zip). "
+        "If you don't have the email or the name+zip yet, ask for it -- do not call the lookup with "
+        "nulls.\n"
+        "- Before ANY state-changing action (return, exchange, cancel, modify), explain the details "
+        "and get the user's explicit yes/no confirmation via <final_answer> first.\n"
+        "- Follow the store policy below exactly. Do not invent ids, prices, or order details; look "
+        "them up with the read tools.\n\n"
         f"# Store Policy\n{wiki}\n\n"
         "</environment_setup>"
     )
@@ -171,6 +183,22 @@ def _to_openai(llm: DRIFTLLM, messages: list) -> list:
     DRIFTLLM.query builds it."""
     adapted = [llm._tool_message_to_user_message(m) if m["role"] == "tool" else m for m in messages]
     return [llm._message_to_sharegpt(m) for m in adapted]
+
+
+def _has_checklist(checklist) -> bool:
+    """True only when the parameter checklist carries real constraints. DRIFT builds an empty
+    checklist from tau-bench's greeting-only opening turn (`None` / `[]` / `['']`), and formatting +
+    checking an empty one is a wasted LLM call every step."""
+    if checklist is None:
+        return False
+    s = str(checklist).strip()
+    if s in ("", "None", "[]", "['']", '[""]', "null"):
+        return False
+    try:
+        parsed = json.loads(checklist) if isinstance(checklist, str) else checklist
+        return bool(parsed) and any(bool(x) for x in parsed)
+    except Exception:
+        return True  # non-JSON but non-empty text -> let the validator handle it
 
 
 def _clean_for_user(content: str) -> str:
@@ -317,12 +345,17 @@ class DriftTauAgent:
                     err["content"] = f"<function_error>\n{err['content']}\n</function_error>"
                     messages.extend([output, err])
                     continue
-                err, output = self.llm.checklist_constraint_validation(
-                    json_tool_calls, output, query, messages)
-                if err:
-                    err["content"] = f"<function_error>\n{err['content']}\n</function_error>"
-                    messages.extend([output, err])
-                    continue
+                # checklist_constraint_validation calls node_json_formatting -- an LLM call -- every
+                # step. When the checklist has no real constraints (empty / None, which is the norm
+                # here because DRIFT plans from tau-bench's greeting-only opening turn), skip it: an
+                # empty checklist passes node_check anyway, so it is pure per-step overhead.
+                if _has_checklist(self.llm.node_checklist):
+                    err, output = self.llm.checklist_constraint_validation(
+                        json_tool_calls, output, query, messages)
+                    if err:
+                        err["content"] = f"<function_error>\n{err['content']}\n</function_error>"
+                        messages.extend([output, err])
+                        continue
 
             if not output["tool_calls"]:  # validation emptied the calls without an error message
                 continue
