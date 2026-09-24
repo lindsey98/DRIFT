@@ -335,3 +335,42 @@ class GoogleModel(_TokenTrackingClient):
             if self.logger:
                 self.logger.error(f"Generation failed: {e}")
             return "FAILED GENERATION."
+
+
+def build_client(model_name, logger=None, max_tokens=DEFAULT_MAX_TOKENS):
+    """Select the backend client for a `--model` name, using the SAME routing as
+    pipeline_main.py so every entry point (AgentDojo, tau-bench, ...) resolves a model
+    identically:
+
+      gpt-*                         -> OpenAIModel            (OPENAI_API_KEY)
+      gemini-*                      -> GoogleModel            (GOOGLE_API_KEY / Vertex)
+      anthropic:* | claude*         -> AnthropicModel         (ANTHROPIC_API_KEY)
+      local:* | any bare name       -> LocalModel             (LOCAL_API_BASE / LOCAL_API_KEY)
+      org/model (has a slash)       -> OpenRouterModel        (OPENROUTER_API_KEY)
+
+    A bare served-name (no provider slash) is treated as a locally-served vLLM/SGLang/Ollama
+    model -- OpenRouter names always contain a "/", so a bare name is never OpenRouter.
+    """
+    if model_name.startswith("gpt-"):
+        client = OpenAIModel(model=model_name, logger=logger, max_tokens=max_tokens)
+        if logger:
+            logger.info(f"Using OpenAI Client: {model_name}")
+    elif model_name.startswith("gemini-"):
+        client = GoogleModel(model=model_name, logger=logger, max_tokens=max_tokens)
+        if logger:
+            logger.info(f"Using Google Client: {model_name}")
+    elif model_name.startswith("anthropic:") or model_name.startswith("claude"):
+        anthropic_model = model_name.split("anthropic:", 1)[-1]
+        client = AnthropicModel(model=anthropic_model, logger=logger, max_tokens=max_tokens)
+        if logger:
+            logger.info(f"Using Anthropic Client: {anthropic_model}")
+    elif model_name.startswith("local:") or "/" not in model_name:
+        local_model = model_name.split("local:", 1)[-1]
+        client = LocalModel(model=local_model, logger=logger, max_tokens=max_tokens)
+        if logger:
+            logger.info(f"Using Local Client: {local_model}")
+    else:
+        client = OpenRouterModel(model=model_name, logger=logger, max_tokens=max_tokens)
+        if logger:
+            logger.info(f"Using OpenRouter Client: {model_name}")
+    return client

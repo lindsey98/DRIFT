@@ -109,6 +109,50 @@ python pipeline_main.py Qwen3-30B-A3B-Instruct-2507 \
 
 **Coverage:** the multi-turn variants load pre-generated dialogues from `chatinject_data/`, keyed by exact injection-GOAL string, and ChatInject only generated them for **banking / slack / travel**. An uncovered GOAL (e.g. any workspace/shopping/github/dailylife task, or a GOAL the fork reworded) raises a clear `ValueError`. The single-turn `chat_inject_qwen3` / `chat_inject_glm` variants have no data dependency and work on any suite. Template delimiters are defined in `chatinject_attack.py:MODEL_CONFIGS` — verify them against your served model's `tokenizer_config` before trusting the numbers.
 
+## tau-bench (retail) + DoomArena
+
+DRIFT also runs on **tau-bench**, attacked by **DoomArena**'s catalog injection. Unlike the guard-
+around-a-stock-agent designs, DRIFT drives its **own** loop here (its `<function_call>` scaffold +
+DRIFT client), applying all three components against the tau-bench environment exactly as it does in
+AgentDojo — DRIFT plans from the **initial** user query and never re-plans, so the trajectory plan,
+checklist and both judges reference that one query for the whole multi-turn conversation.
+
+### Install (two packages, neither on PyPI)
+
+Clone [`lindsey98/DoomArena`](https://github.com/lindsey98/DoomArena) and tau-bench next to this repo,
+then, in the DRIFT env:
+
+```bash
+pip install "git+https://github.com/sierra-research/tau-bench.git#egg=tau_bench"
+pip install -e ../DoomArena/doomarena/core       # the attack gateway + filter protocol
+pip install -e ../DoomArena/doomarena/taubench   # the tau-bench attacks and their yaml
+```
+
+The attack yaml is read from that checkout at run time, so `--doomarena <path>` must point at it
+(default `../DoomArena`).
+
+### Run
+
+```bash
+# benign, defended: every retail task
+python taubench_main.py MODEL --suite retail --defense drift
+
+# under attack (the reproducible fixed-injection catalog poison), defended
+python taubench_main.py MODEL --run-attack --attack malicious_catalog_fixed --suite retail --defense drift
+
+# the undefended DRIFT baseline (same scaffold, defenses off)
+python taubench_main.py MODEL --run-attack --defense none
+
+# one task, with an HTML trace
+python taubench_main.py MODEL --run-attack -ut 0 --defense drift --html
+```
+
+- **`--defense drift | none`**, **`--run-attack`**, **`--attack`**, **`--user-task`/`-ut`** mirror the AgentDojo CLI.
+- **Attacks:** `malicious_catalog_fixed` (default; a constant injected string — reproducible, no attacker model) or `malicious_catalog` (regenerates the injection with `openrouter/openai/gpt-4o`, needs `OPENROUTER_API_KEY`, non-deterministic). Only **retail** runs under attack.
+- **User simulator:** tau-bench's user is a separate model (`--user-model` / `--user-provider`); it goes through litellm and defaults to the agent's own server for a local model, else `gpt-4o`. The DRIFT **agent** uses DRIFT's own client, not litellm.
+- **Scoring:** `utility` is tau-bench's own `reward`; `security=True` means the injection **succeeded** (DoomArena's leak record — the agent re-issued `get_product_details` with the customer's name+zip glued to the `product_id`).
+- Results: `logs_taubench/<model>[+drift]/retail/user_task_<i>/<attack>/none.json` (+ `.html` with `--html`), holding the query, the DRIFT plan/checklist/permissions, every isolation and alignment decision, the full conversation, tokens, and `utility` / `security`.
+
 ## Results
 
 Results are written under `logs/<model>[+drift]/<suite>/<user_task>/<attack>/<injection_task>.json` (AgentDojo-style). The `+drift` suffix marks defended runs; the bare model name marks the original model, so the two never collide:

@@ -1,5 +1,6 @@
 runs_
 logs/
+logs_taubench/
 *log.txt
 __pycache__/
 *.pyc
