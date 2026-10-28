@@ -356,9 +356,19 @@ def build_client(model_name, logger=None, max_tokens=DEFAULT_MAX_TOKENS):
         if logger:
             logger.info(f"Using OpenAI Client: {model_name}")
     elif model_name.startswith("gemini-"):
-        client = GoogleModel(model=model_name, logger=logger, max_tokens=max_tokens)
-        if logger:
-            logger.info(f"Using Google Client: {model_name}")
+        # Native Gemini needs Vertex AI (GCP project + ADC). But when OPENAI_BASE_URL is set the
+        # user has pointed us at an OpenAI-compatible relay (e.g. a gateway that also serves
+        # Gemini), so send gemini-* there with the name unchanged -- the same OpenAI-compatible
+        # path gpt-* uses, which (unlike the local: path) honours HTTP(S)_PROXY. Falls back to
+        # Vertex only when no relay is configured.
+        if os.getenv("OPENAI_BASE_URL"):
+            client = OpenAIModel(model=model_name, logger=logger, max_tokens=max_tokens)
+            if logger:
+                logger.info(f"Using OpenAI-compatible relay for {model_name}: {os.getenv('OPENAI_BASE_URL')}")
+        else:
+            client = GoogleModel(model=model_name, logger=logger, max_tokens=max_tokens)
+            if logger:
+                logger.info(f"Using Google (Vertex) Client: {model_name}")
     elif model_name.startswith("anthropic:") or model_name.startswith("claude"):
         anthropic_model = model_name.split("anthropic:", 1)[-1]
         client = AnthropicModel(model=anthropic_model, logger=logger, max_tokens=max_tokens)

@@ -40,7 +40,7 @@ The provider is selected automatically from the positional `MODEL` name. Export 
 | Provider   | `MODEL` example                                | Env var(s) |
 |------------|------------------------------------------------|------------|
 | OpenAI     | `gpt-4o-mini-2024-07-18`                        | `OPENAI_API_KEY` |
-| Google     | `gemini-2.5-pro`                                | `GOOGLE_API_KEY` (Vertex: `GCP_PROJECT`, `GCP_LOCATION`) |
+| Google     | `gemini-2.5-pro`                                | Vertex AI: `GCP_PROJECT`, `GCP_LOCATION` + `gcloud auth application-default login` (or set `OPENAI_BASE_URL`/`OPENAI_API_KEY` to send `gemini-*` through an OpenAI-compatible relay instead) |
 | Anthropic  | `anthropic:claude-sonnet-4-5-20250929`          | `ANTHROPIC_API_KEY` |
 | Local      | any bare served-name, e.g. `Qwen3-30B-A3B-Instruct-2507`, `gemma-4-26B-A4B`, or `local:<name>` | `LOCAL_API_BASE`, `LOCAL_API_KEY` |
 | OpenRouter | an `org/model` name (with a slash), e.g. `meta-llama/Llama-3-70b-chat-hf` | `OPENROUTER_API_KEY` |

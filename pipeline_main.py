@@ -1,6 +1,6 @@
 import glob
 import time
-from client import OpenAIModel, OpenRouterModel, GoogleModel, AnthropicModel, LocalModel
+from client import OpenAIModel, OpenRouterModel, GoogleModel, AnthropicModel, LocalModel, build_client
 
 from import_lib import *
 from utils import get_args, set_seed, get_logger
@@ -121,35 +121,13 @@ def main(args, suite_type):
 
     logger.info(f"Evaluating Suites: {suites}")
 
-    if model_name.startswith("gpt-"):
-        client = OpenAIModel(model=args.model, logger=logger)
-        logger.info(f"Using OpenAI Client: {args.model}")
-
-    elif model_name.startswith("gemini-"):
-        client = GoogleModel(model=args.model, logger=logger)
-        logger.info(f"Using Google Client: {args.model}")
-
-    elif model_name.startswith("anthropic:") or model_name.startswith("claude"):
-        # Accept either "anthropic:claude-sonnet-4-5-20250929" or "claude-sonnet-4-5-20250929".
-        anthropic_model = model_name.split("anthropic:", 1)[-1]
-        client = AnthropicModel(model=anthropic_model, logger=logger)
-        logger.info(f"Using Anthropic Client: {anthropic_model}")
-
-    elif model_name.startswith("local:") or "/" not in model_name:
-        # Locally-served, OpenAI-compatible model served via vLLM/SGLang/Ollama, e.g.
-        # Qwen3-30B-A3B-Instruct-2507, Llama-3.3-70B-Instruct, gemma-4-26B-A4B. Accept
-        # either a "local:<name>" prefix or any bare served-model name (no provider
-        # slash). OpenRouter models are always "org/model" (with a slash), so a bare
-        # name is never OpenRouter -- routing it here matches the vLLM served-name
-        # convention and avoids sending localhost traffic out to openrouter.ai.
-        # (Cloud prefixes gpt-/gemini-/anthropic:/claude are handled by the branches above.)
-        local_model = model_name.split("local:", 1)[-1]
-        client = LocalModel(model=local_model, logger=logger)
-        logger.info(f"Using Local Client: {local_model}")
-
-    else:
-        client = OpenRouterModel(model=args.model, logger=logger)
-        logger.info(f"Using OpenRouter Client: {args.model}")
+    # Single source of truth for model routing (shared with the tau-bench entry point):
+    #   gpt-*                   -> OpenAIModel     (OPENAI_API_KEY / OPENAI_BASE_URL)
+    #   gemini-*                -> GoogleModel (Vertex), or OpenAIModel when OPENAI_BASE_URL is set
+    #   anthropic:* | claude*   -> AnthropicModel
+    #   local:* | bare name     -> LocalModel      (LOCAL_API_BASE / LOCAL_API_KEY)
+    #   org/model (has a slash) -> OpenRouterModel
+    client = build_client(model_name, logger=logger)
 
     llm = DRIFTLLM(args, client, logger=logger)
 
