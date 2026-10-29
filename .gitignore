@@ -5,3 +5,5 @@ logs_taubench/
 __pycache__/
 *.pyc
 repeated_cache/
+.DS_Store
+.idea/
