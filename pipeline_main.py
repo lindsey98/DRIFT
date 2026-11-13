@@ -1,11 +1,43 @@
 import time
-from client import OpenAIModel, OpenRouterModel, GoogleModel
+import copy
+from client import OpenAIModel, OpenRouterModel, GoogleModel, LocalModel
 
 from import_lib import *
 from utils import get_args, set_seed, get_logger
 from DRIFTLLM import DRIFTLLM
 from DRIFTTaskSuite import DRIFTTaskSuite
 from DRIFTToolsExecutionLoop import DRIFTToolsExecutionLoop
+
+
+# Per-task token usage broken down by DRIFT module. The client accumulates tokens per
+# call-label in client.tokens_dict (see client.OpenAIModel); DRIFTLLM tags each module's
+# call with one of these names, so a task's module usage is the cumulative count now minus
+# a snapshot taken before the task (same delta scheme as total_tokens).
+_MODULE_NAMES = [
+    "constraints_build",      # dynamic planner: build the initial trajectory + checklist
+    "privilege_assignment",   # dynamic planner: per-tool read/write/execute permission
+    "injection_detection",    # injection isolator
+    "alignment_judge",        # alignment tracker (trajectory constraint validation)
+    "node_formatting",        # checklist constraint validation (node JSON formatting)
+    "agent_generation",       # the tool-calling policy LLM itself
+]
+
+
+def _module_token_delta(client, before):
+    """{module_name: {prompt_tokens, completion_tokens, total_tokens}} used in this task.
+    `before` is a deepcopy of client.tokens_dict captured before the task ran. Missing keys
+    count as zero (a module that was never invoked contributes 0)."""
+    now = getattr(client, "tokens_dict", {}) or {}
+    out = {}
+    for name in _MODULE_NAMES:
+        n = now.get(name, {}) or {}
+        b = before.get(name, {}) or {}
+        out[name] = {
+            "prompt_tokens": n.get("prompt_tokens", 0) - b.get("prompt_tokens", 0),
+            "completion_tokens": n.get("completion_tokens", 0) - b.get("completion_tokens", 0),
+            "total_tokens": n.get("total_tokens", 0) - b.get("total_tokens", 0),
+        }
+    return out
 
 
 def main(args, suite_type):
@@ -56,6 +88,15 @@ def main(args, suite_type):
         client = GoogleModel(model=args.model, logger=logger)
         tools_pipeline_name = args.model
         logger.info(f"Using Google Client: {args.model}")
+
+    elif model_name.startswith("local:") or "/" not in model_name:
+        # A locally served vLLM/SGLang/Ollama model: any bare served-name (no "/") or an
+        # explicit "local:" prefix. OpenRouter names always contain a "/", so they never
+        # collide and still fall through to the OpenRouter branch below.
+        local_model = model_name.split("local:", 1)[-1]
+        client = LocalModel(model=local_model, logger=logger)
+        tools_pipeline_name = local_model
+        logger.info(f"Using Local Client: {local_model}")
 
     else:
         client = OpenRouterModel(model=args.model, logger=logger)
@@ -132,6 +173,9 @@ def main(args, suite_type):
                 match = re.fullmatch(r'injection_task_(\d+)', injection_task_id)
                 injection_task_idx = int(match.group(1))
                 pre_total_tokens = llm.client.total_tokens
+                pre_prompt_tokens = llm.client.prompt_tokens
+                pre_completion_tokens = llm.client.completion_tokens
+                pre_tokens_snapshot = copy.deepcopy(getattr(llm.client, "tokens_dict", {}))
 
                 result_file_path = Path(save_dir) / f"user_task_{user_task_idx}" / attacker / f"injection_task_{injection_task_idx}.json"
                 result_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -159,7 +203,7 @@ def main(args, suite_type):
                 utility_result.append(utility)
                 security_result.append(security)
                 with open(result_file_path, "w") as f:
-                    json.dump({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": f"injection_task_{injection_task_idx}", "attack_type": f"{attacker}", "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, f, indent=4)
+                    json.dump({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": f"injection_task_{injection_task_idx}", "attack_type": f"{attacker}", "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "prompt_tokens": llm.client.prompt_tokens - pre_prompt_tokens, "completion_tokens": llm.client.completion_tokens - pre_completion_tokens, "total_tokens": llm.client.total_tokens - pre_total_tokens, "module_tokens": _module_token_delta(llm.client, pre_tokens_snapshot), "duration": end_time - start_time}, f, indent=4)
 
                 logger.info(f"user_task_{user_task_idx} with injection_task_{injection_task_idx} Utility Success Ratio: {utility_result.count(True) + resume_utility} / {len(utility_result) + resume_total}")
                 logger.info(f"user_task_{user_task_idx} with injection_task_{injection_task_idx} Attack Success Ratio: {security_result.count(True) + resume_security} / {len(security_result) + resume_total}")
@@ -171,7 +215,10 @@ def main(args, suite_type):
             match = re.fullmatch(r'user_task_(\d+)', user_task_name)
             user_task_idx = int(match.group(1))
             pre_total_tokens = llm.client.total_tokens
-            
+            pre_prompt_tokens = llm.client.prompt_tokens
+            pre_completion_tokens = llm.client.completion_tokens
+            pre_tokens_snapshot = copy.deepcopy(getattr(llm.client, "tokens_dict", {}))
+
             result_file_path = Path(save_dir) / f"user_task_{user_task_idx}" / "none" / f"none.json"
             result_file_path.parent.mkdir(parents=True, exist_ok=True)
             if not args.force_rerun and os.path.exists(result_file_path):
@@ -195,7 +242,7 @@ def main(args, suite_type):
             utility_result.append(utility)
             security_result.append(security)
             with open(result_file_path, "w") as f:
-                json.dump({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": None, "attack_type": None, "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "total_tokens": llm.client.total_tokens - pre_total_tokens, "duration": end_time - start_time}, f, indent=4)
+                json.dump({"suite_name": suite_type, "pipeline_name": f"{args.model}", "user_task_id": f"user_task_{user_task_idx}", "injection_task_id": None, "attack_type": None, "build_constraints": args.build_constraints, "injection_isolation": args.injection_isolation, "dynamic_validation": args.dynamic_validation, "adaptive_attack": args.adaptive_attack, "tool_permission": llm.tool_permissions, "initial_trajectory": llm.initial_function_trajectory, "initial_checklist": llm.initial_node_checklist, "conversations": messages, "benchmark_version": args.benchmark_version, "utility": utility, "security": security, "prompt_tokens": llm.client.prompt_tokens - pre_prompt_tokens, "completion_tokens": llm.client.completion_tokens - pre_completion_tokens, "total_tokens": llm.client.total_tokens - pre_total_tokens, "module_tokens": _module_token_delta(llm.client, pre_tokens_snapshot), "duration": end_time - start_time}, f, indent=4)
 
                 logger.info(f"user_task_{user_task_idx} Utility Success Ratio: {utility_result.count(True) + resume_utility} / {len(utility_result) + resume_total}")
 

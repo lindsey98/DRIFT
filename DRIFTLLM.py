@@ -170,7 +170,7 @@ class DRIFTLLM(PromptingLLM):
                 <Function>\n{function}\n</Function>
                 """
             
-        choice = self.client.llm_run(guidelines, data)
+        choice = self.client.llm_run(guidelines, data, name="privilege_assignment")
         if ("B" in choice):
             self.logger.info(f"Function {function} is Write permission")
             return "Write"
@@ -221,7 +221,7 @@ class DRIFTLLM(PromptingLLM):
                 <User_Query>\n{query}\n</User_Query>
                 """
 
-        answer = self.client.llm_run(guidelines, data)
+        answer = self.client.llm_run(guidelines, data, name="alignment_judge")
         if ("Yes" in answer) or ("YES" in answer):
             return True, ""
 
@@ -273,7 +273,7 @@ class DRIFTLLM(PromptingLLM):
         from json_repair import repair_json
 
         for i in range(3):
-            answer = self.client.llm_run(guidelines, data)
+            answer = self.client.llm_run(guidelines, data, name="node_formatting")
             formatted_answer = repair_json(answer)
             try:
                json.loads(formatted_answer)
@@ -607,7 +607,7 @@ class DRIFTLLM(PromptingLLM):
                 self.logger.info("Building Constraints ...")
                 system_message = CONSTRAINTS_BUILD_PROMPT
                 openai_messages = [{"role": "system", "content": system_message}, *openai_messages]
-                completion = self.client.agent_run(openai_messages, self.tools_docs_list)
+                completion = self.client.agent_run(openai_messages, self.tools_docs_list, name="constraints_build")
 
                 self.initial_constraints_build(completion)
 
@@ -621,7 +621,7 @@ class DRIFTLLM(PromptingLLM):
                 <Tool Results>\n{obs}\n</Tool Results>"""
                 openai_messages = [{"role": "system", "content": system_message}, *openai_messages]
 
-                detected_instructions = self.client.llm_run(system_message, user_prompt)
+                detected_instructions = self.client.llm_run(system_message, user_prompt, name="injection_detection")
 
                 cycle_times = 0
                 injection_completion_mark, messages, openai_messages = self.injection_isolate(detected_instructions, messages, openai_messages)
@@ -631,7 +631,7 @@ class DRIFTLLM(PromptingLLM):
                     obs = messages[-1]
                     user_prompt = f"""<User Query>\n{query}\n</User Query>
                     <Tool Results>\n{obs}\n</Tool Results>"""
-                    detected_instructions = self.client.llm_run(system_message, user_prompt)
+                    detected_instructions = self.client.llm_run(system_message, user_prompt, name="injection_detection")
                     injection_completion_mark, messages, openai_messages = self.injection_isolate(detected_instructions, messages, openai_messages)
                 
         # thought-calling
@@ -643,7 +643,7 @@ class DRIFTLLM(PromptingLLM):
         else:
             openai_messages = [{"role": "system", "content": system_message}, *openai_messages]
 
-        completion = self.client.agent_run(openai_messages, self.tools_docs_list, query=query, initial_trajectory=self.function_trajectory, achieved_trajectory=self.achieved_function_trajectory, node_checklist=self.node_checklist)
+        completion = self.client.agent_run(openai_messages, self.tools_docs_list, query=query, initial_trajectory=self.function_trajectory, achieved_trajectory=self.achieved_function_trajectory, node_checklist=self.node_checklist, name="agent_generation")
 
         output = {"role": "assistant", "content": completion[0] or "", "tool_calls": []}
         
@@ -663,7 +663,7 @@ class DRIFTLLM(PromptingLLM):
                 break
             except (InvalidModelOutputError, ASTParsingError) as e:
                 error_message = {"role": "user", "content": f"Invalid function calling output: {e!s}"}
-                completion = self.client.agent_run([*openai_messages, self._message_to_sharegpt(error_message)], self.tools_docs_list, query=query, initial_trajectory=self.function_trajectory, achieved_trajectory=self.achieved_function_trajectory, node_checklist=self.node_checklist)
+                completion = self.client.agent_run([*openai_messages, self._message_to_sharegpt(error_message)], self.tools_docs_list, query=query, initial_trajectory=self.function_trajectory, achieved_trajectory=self.achieved_function_trajectory, node_checklist=self.node_checklist, name="agent_generation")
 
         # Current Tool Call Redundant Judgement and Extraction
         existing_tool_calls = self._load_previous_calls(messages)

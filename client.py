@@ -1,4 +1,5 @@
 import openai
+import httpx
 import json
 import os
 
@@ -277,9 +278,39 @@ class OpenRouterModel():
 
 
 
+class LocalModel(OpenAIModel):
+    """OpenAI-compatible client for a locally served model (vLLM / SGLang / Ollama).
+
+    Identical to OpenAIModel except for the endpoint: it points at LOCAL_API_BASE
+    (default http://localhost:8000/v1) with key LOCAL_API_KEY (default "EMPTY"), and
+    uses trust_env=False so a localhost endpoint is not routed through an HTTP(S)_PROXY
+    set in the environment. The served-model name is passed through unchanged, and
+    agent_run / llm_run are inherited, so behaviour matches the gpt-* path exactly.
+    """
+    def __init__(self, model="Qwen3-30B-A3B-Instruct-2507", api_key=None, api_base="", api_version="2024-10-21", logger=None):
+        self.api_base = api_base
+        self.api_key = api_key
+        self.model = model
+        self.logger = logger
+        self.logger.info(f"Initial Model {model}")
+        self.api_version = api_version
+        base_url = os.getenv("LOCAL_API_BASE", "http://localhost:8000/v1")
+        self.client = openai.OpenAI(
+            api_key=api_key or os.getenv("LOCAL_API_KEY", "EMPTY"),
+            base_url=base_url,
+            http_client=httpx.Client(trust_env=False),
+        )
+        self.logger.info(f"Using model {model}. Local endpoint: {base_url}")
+        self.completion_tokens = 0
+        self.prompt_tokens = 0
+        self.total_tokens = 0
+        self.label = "OpenAI"
+        self.tokens_dict = {"total_completion_tokens": 0, "total_prompt_tokens": 0, "total_total_tokens": 0}
+
+
 class GoogleModel():
     def __init__(
-        self, 
+        self,
         model: str = "gemini-2.0-flash", 
         project_id: Optional[str] = None, 
         location: Optional[str] = "us-central1", 
