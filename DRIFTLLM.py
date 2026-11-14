@@ -1,3 +1,4 @@
+from gemma_tool_parser import normalize_gemma_calls
 from import_lib import *
 import uuid
 
@@ -100,6 +101,7 @@ class DRIFTLLM(PromptingLLM):
         Returns:
             The assistant message with the extracted text and tool calls.
         """
+        message = normalize_gemma_calls(message)
         if message is None:
             return ChatAssistantMessage(role="assistant", content="", tool_calls=None)
         tool_call_pattern = re.compile(r"<function_call>(.*?)</function_call>", re.DOTALL)
@@ -787,6 +789,15 @@ class DRIFTLLM(PromptingLLM):
 
         output = {"role": "assistant", "content": completion[0] or "", "tool_calls": []}
         
+        # Normalize Gemma text calls before the existing missing-tag gate.
+        try:
+            completion[0] = normalize_gemma_calls(completion[0])
+            output["content"] = completion[0] or ""
+        except (SyntaxError, ValueError):
+            # Send malformed native calls through the existing format-retry loop.
+            completion[0] = "<function_call>" + (completion[0] or "") + "</function_call>"
+            output["content"] = completion[0]
+
         # format validation
         if len(runtime.functions) == 0 or ("<function_call>" not in (output["content"] or "")) or (len(openai_messages) > 20):
             if len(runtime.functions) == 0:
