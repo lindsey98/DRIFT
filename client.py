@@ -133,7 +133,19 @@ class OpenAIModel(_TokenTrackingClient):
             elif message["role"] in _ROLE_MAP:
                 message["role"] = _ROLE_MAP[message["role"]]
 
-        response = self._create_fitted(messages, name)
+        try:
+            response = self._create_fitted(messages, name)
+        except openai.OpenAIError as e:
+            # A non-recoverable API error on the main generation call -- e.g. Gemini 2.5's
+            # 502 MALFORMED_FUNCTION_CALL (its decoder speculatively emits a native function
+            # call and aborts), a rate limit, or an input that alone overflows the context.
+            # Degrade to an empty generation instead of aborting the whole suite: with no
+            # <function_call> tag, DRIFTLLM.query ends this task as a (failed) final answer,
+            # so only this task is lost. Mirrors llm_run's "FAILED GENERATION." fallback.
+            if self.logger:
+                self.logger.info(f"[client] agent_run API error ({type(e).__name__}): {e}; "
+                                 f"returning empty generation so the run continues.")
+            return ["FAILED GENERATION."]
         return [response.choices[0].message.content]
 
     def llm_run(self, SystemPrompt, UserPrompt, name="default"):
